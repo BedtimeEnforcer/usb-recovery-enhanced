@@ -73,6 +73,32 @@ int wmain(int argc,wchar_t** argv){try{
     e::WalkBudget exhausted;exhausted.limited=true;std::vector<S> coverageLogs;
     e::scanTrees({expanded},fixtureScanner,seen,found,[&](const S& line){coverageLogs.push_back(line);},exhausted);
     check(!coverageLogs.empty() && coverageLogs[0].find(L"预算用尽")!=S::npos,"P0-3 exhausted budget records roots that were not scanned");
+    rejects([&]{e::requireRecoveryReady(false,{});},"P0-4 recovery requires completed selected-drive scan");
+    rejects([&]{e::requireRecoveryReady(true,{{L"fixture",L"",L"",true,false}});},"P0-4 outstanding confirmed file blocks recovery");
+    e::requireRecoveryReady(true,{{L"unknown",L"",L"",false,false}});check(true,"P0-4 unconfirmed advisory does not forge a confirmed blocker");
+    S disk=join(root,L"disk"),container=join(disk,L"\uffff"),nested=join(container,L"documents"),sub=join(nested,L"sub");mkdir(disk);mkdir(container);mkdir(nested);mkdir(sub);
+    S document=join(sub,L"report.txt");textFile(document,L"harmless user document");
+    SetFileAttributesW(xp(container).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    SetFileAttributesW(xp(nested).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    SetFileAttributesW(xp(sub).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    SetFileAttributesW(xp(document).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    auto recovery=e::plan(disk,container,true);
+    {Journal j(join(root,L"recover-journals"));e::recover(recovery,j,log,true);}
+    S moved=join(disk,L"documents");
+    check(!(attr(moved)&(FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM)) && !(attr(join(moved,L"sub"))&(FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM)) && !(attr(join(join(moved,L"sub"),L"report.txt"))&(FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM)),"P0-4 nested directories and user files all become visible");
+    check(e::canDeleteEmptyContainer(recovery,true),"P0-4 empty UFFFF container offers cleanup");
+    {Journal j(join(root,L"empty-journals"));check(!e::deleteEmptyContainer(recovery,false,j,true) && exists(container),"P0-4 empty folder remains without explicit cleanup consent");
+        textFile(join(container,L"new-user-file.txt"),L"preserve me");
+        check(!e::canDeleteEmptyContainer(recovery,true),"P0-4 nonempty container does not offer enabled deletion");
+        rejects([&]{e::deleteEmptyContainer(recovery,true,j,true);},"P0-4 content added after offer prevents deletion");
+        check(exists(join(container,L"new-user-file.txt")),"P0-4 newly appeared user file is preserved");
+    }
+    S emptyDisk=join(root,L"empty-disk"),emptyContainer=join(emptyDisk,L"\uffff");mkdir(emptyDisk);mkdir(emptyContainer);
+    auto emptyPlan=e::plan(emptyDisk,emptyContainer,true);
+    {Journal j(join(root,L"empty-journals"));check(e::deleteEmptyContainer(emptyPlan,true,j,true),"P0-4 explicit empty-only deletion succeeds");}
+    check(!exists(emptyContainer),"P0-4 disposition removes only verified empty container");
+    S unsafe=join(container,L"nested");mkdir(unsafe);textFile(join(unsafe,L"harmless.exe"),L"inert");
+    rejects([&]{e::plan(disk,container,true);},"P0-4 nested executable still rejects directory recovery");
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}

@@ -8,6 +8,8 @@ using namespace usb;
 #include "enhanced_engine.hpp"
 namespace app = enhanced;
 static std::vector<RegistrySnapshot> policyFindings, startupFindings;
+static bool scanCompleted=false;
+static S scannedRoot;
 static const wchar_t* const APP_TITLE = L"U 盘修复助手 · 加强版";
 #else
 namespace app = usb;
@@ -359,6 +361,7 @@ void doScan()
 #ifdef USB_ENHANCED
     enhanced::ScanOptions options;options.expanded=SendMessageW(GetDlgItem(window,ID_EXPANDED),BM_GETCHECK,0,0)==BST_CHECKED;
 #endif
+    scanCompleted=false;
     startScanProgress();
     auto notices = std::make_shared<std::vector<S>>();
     run(L"正在检查，请稍候……", [root, notices
@@ -384,7 +387,8 @@ void doScan()
         size_t yes = 0;
         for (auto& f : findings) { if (f.confirmed) yes++; logLine((f.confirmed ? L"已确认 | " : L"需核查 | ") + f.path + L" | " + f.reason); }
         logLine(L"确认命中 " + num(yes) + L" 项；需核查 " + num(findings.size() - yes) + L" 项。未命中不代表整机无毒。");
-    }, [notices] {
+    }, [notices,root] {
+        scanCompleted=true;scannedRoot=root;
         // 弹窗只展示命中结果；检查细节已写入日志。
         std::vector<Finding> confirmed;
         for (auto& f : findings) if (f.confirmed) confirmed.push_back(f);
@@ -412,9 +416,14 @@ void startClean(const std::vector<Finding>& confirmed)
     auto collected = std::make_shared<std::vector<S>>();
     run(L"正在备份并清理……", [confirmed, collected] {
         app::clean(confirmed, [collected](const S& s) { collected->push_back(s); logLine(s); });
-        findings.clear();
         logLine(L"请重新检查；电脑感染清理后还需重启复查。失败项见日志。");
-    }, [collected] { showCleanResult(*collected); });
+    }, [collected] {
+        for(const auto& line:*collected)if(line.rfind(L"已隔离：",0)==0) {
+            S path=line.substr(S(L"已隔离：").size());
+            findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path);}),findings.end());
+        }
+        showCleanResult(*collected);
+    });
 }
 
 #ifdef USB_ENHANCED
@@ -484,6 +493,18 @@ void doClean()
     }
     startClean(confirmed);
 }
+#ifdef USB_ENHANCED
+void offerDeleteEmpty(const Plan& p) {
+    if(!enhanced::canDeleteEmptyContainer(p))return;
+    TASKDIALOG_BUTTON button{301,L"删除空的 U+FFFF 文件夹"};
+    TASKDIALOGCONFIG cfg{};cfg.cbSize=sizeof(cfg);cfg.hwndParent=window;cfg.pszWindowTitle=L"恢复收尾";
+    cfg.pszMainInstruction=L"用户文件已移出，特殊字符文件夹现在为空";
+    cfg.pszContent=L"是否删除这个空文件夹？删除前会再次校验，目录非空时拒绝删除。";
+    cfg.cButtons=1;cfg.pButtons=&button;cfg.dwCommonButtons=TDCBF_CANCEL_BUTTON;cfg.dwFlags=TDF_POSITION_RELATIVE_TO_WINDOW;
+    int clicked=IDCANCEL;TaskDialogIndirect(&cfg,&clicked,nullptr,nullptr);
+    if(clicked==301)run(L"正在复核空文件夹……",[p]{Journal j(data());enhanced::deleteEmptyContainer(p,true,j);},[]{updateFolders();msgBox(L"恢复收尾",L"空文件夹已删除",L"恢复成功不等于清毒，请重启后复查。");});
+}
+#endif
 void doRestore()
 {
     S root = selectedRoot();
@@ -493,9 +514,16 @@ void doRestore()
                L"固定磁盘和网络盘不在恢复范围内。", TDCBF_OK_BUTTON, TD_WARNING_ICON);
         return;
     }
+#ifdef USB_ENHANCED
+    try{enhanced::requireRecoveryReady(scanCompleted && !scannedRoot.empty() && same(scannedRoot,root),findings);}
+    catch(const Error& e){msgBox(L"请先完成检查与隔离",L"暂不能恢复",e.text,TDCBF_OK_BUTTON,TD_WARNING_ICON);return;}
+#endif
     S container = folders[i];
     run(L"正在检查内容并生成恢复预览……", [root, container] { pending = app::plan(root, container); }, [container] {
         if (pending.items.empty()) {
+#ifdef USB_ENHANCED
+            if(enhanced::canDeleteEmptyContainer(pending)){offerDeleteEmpty(pending);return;}
+#endif
             // 区分两种“空”：隐藏目录里只剩病毒文件，或确实没有可移动的用户文件。
             bool onlyVirus = false;
             try {
@@ -522,9 +550,17 @@ void doRestore()
 #endif
         if (msgBox(L"确认恢复", L"请确认要恢复的磁盘", msg, TDCBF_YES_BUTTON | TDCBF_NO_BUTTON, TD_WARNING_ICON) == IDYES) {
             Plan p = pending;
-            run(L"正在恢复，请勿拔出 U 盘……", [p] { Journal j(data()); app::recover(p, j, logLine); }, [] {
+            run(L"正在恢复，请勿拔出 U 盘……", [p] {
+#ifdef USB_ENHANCED
+                enhanced::requireRecoveryReady(scanCompleted && same(scannedRoot,p.root),findings);
+#endif
+                Journal j(data()); app::recover(p, j, logLine);
+            }, [p] {
                 updateFolders();
-                msgBox(L"恢复完成", L"U 盘已恢复完成", L"建议重新检查 U 盘，确认没有残留病毒。", TDCBF_OK_BUTTON, TD_INFORMATION_ICON);
+                msgBox(L"恢复完成", L"U 盘已恢复完成", L"恢复成功不等于清毒。请重启后重新检查电脑和 U 盘。", TDCBF_OK_BUTTON, TD_INFORMATION_ICON);
+#ifdef USB_ENHANCED
+                offerDeleteEmpty(p);
+#endif
             });
         }
     });

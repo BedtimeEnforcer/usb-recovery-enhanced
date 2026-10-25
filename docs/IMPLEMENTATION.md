@@ -28,3 +28,11 @@
 - `ui_results.hpp::scanReport`：保留实际扫描范围、盲区、访问失败，未命中不代表整机无毒。
 - 不默认扩大的原因：此前本机扫描已经累计读取十余 GiB，直接扩大默认范围会使耗时进一步增加。选择扩展检查时明确提示较慢。
 - 验证：`remediation-tests` 累计 23 项通过，本任务新增 4 项，含 System32 模拟目录里的无害自定义指纹命中及预算耗尽记录。
+
+## 任务 4：恢复门禁、递归可见属性与空容器收尾
+
+- `enhanced_engine.hpp::requireRecoveryReady` 与 `main.cpp::doRestore`：要求成功检查当前所选 U 盘，并拦截仍未处理的 confirmed 项；隔离成功才从当前 Finding 中移除，失败项保留。
+- `makeTreeVisible`：移动后的用户目录和文件递归清除 HIDDEN/SYSTEM，保留其他属性，记录变更，继续遵守深度/项数及拒绝链接的约束。
+- `canDeleteEmptyContainer/deleteEmptyContainer`：仅允许当前卷的根目录 U+FFFF 空容器，单独确认并再次检查；通过目录句柄的 FileDispositionInfo 删除，Windows 在出现子项时原子拒绝。没有递归删除，也没有 RemoveDirectory 调用。
+- `main.cpp::offerDeleteEmpty`：仅空容器显示“删除空的 U+FFFF 文件夹”确认按钮；结果保留“恢复成功不等于清毒”。
+- 验证：`remediation-tests` 累计 35 项通过，本任务新增 12 项，含未处理项门禁、嵌套属性、无确认不删、新出现用户文件拒绝删、空容器删除、嵌套程序拒绝恢复。
