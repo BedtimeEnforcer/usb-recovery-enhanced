@@ -2,6 +2,8 @@
 
 本仓库仅发布加强版。免安装程序和便携 ZIP 请在 [Releases](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/releases/latest) 下载。
 
+> **危险测试资料**：另提供[真实病毒测试样本](samples/README.md)，仅供隔离环境中的静态检测验证，请勿运行。样本不包含在普通程序下载包中。
+
 制作人：**李晓达**。因机务段带毒电脑过多、U 盘反复感染而开发本工具。
 
 检查时显示流动进度条、当前文件/目录、已检查文件数及耗时；结果弹窗只显示必要的处理结果，详细过程保留在日志中。
