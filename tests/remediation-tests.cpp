@@ -70,7 +70,7 @@ int wmain(int argc,wchar_t** argv){try{
     check(e::references(L"\"C:\\fixture\\confirmed.exe\" /a",L"C:\\fixture\\confirmed.exe"),"P0-2 direct confirmed-file reference still matches");
     S expanded=join(root,L"Windows"),system=join(expanded,L"System32");mkdir(expanded);mkdir(system);
     S fixture=join(system,L"harmless.bin");textFile(fixture,L"harmless expanded scope hash fixture");
-    std::vector<e::HashRule> fixtureRules{{hash(fixture),L"fixture",L"local harmless",L"fixture only"}};
+    std::vector<e::HashRule> fixtureRules{{hash(fixture),L"fixture",L"local harmless",L"fixture only",size(fixture)}};
     e::Scanner fixtureScanner(fixtureRules);std::set<S> seen;std::vector<Finding> found; e::WalkBudget scopeBudget;
     e::scanTrees({expanded},fixtureScanner,seen,found,log,scopeBudget);
     check(found.size()==1 && found[0].confirmed && same(found[0].path,fixture),"P0-3 expanded tree traversal detects harmless custom fingerprint in System32 fixture");
@@ -146,6 +146,31 @@ int wmain(int argc,wchar_t** argv){try{
     auto cautious=scanReport({}, {L"检查范围："+e::scopeDescription(false),L"未检查：fixture [5]"});
     check(cautious.warning && cautious.content.find(L"未命中不代表整机无毒")!=S::npos && cautious.details.find(L"未检查：fixture [5]")!=S::npos,"P2-8 completion preserves coverage limitations without claiming clean system");
     check(e::rulesText().find(L"尚未进行加强版虚拟机真实感染验收")!=S::npos && e::rulesText().find(L"扩展检查")!=S::npos,"P2-8 rule export retains unvalidated status and actual scope modes");
+    check(e::rules()[0].expectedSize==85504 && !e::ruleSizeMatches(e::rules()[0],85505),"P2-9 built-in original fingerprint enforces exact registered size");
+    auto unregistered=fixtureRules;unregistered[0].expectedSize=0; e::Scanner unregisteredScanner(unregistered);std::vector<Finding> sizeAdvisory;
+    unregisteredScanner.inspect(fixture,sizeAdvisory,log);
+    check(sizeAdvisory.size()==1 && !sizeAdvisory[0].confirmed,"P2-9 hash without registered size is advisory rather than automatic isolation");
+    {Journal j(join(root,L"size-journals"));e::HostActions noActions;Finding forged{fixture,hash(fixture),L"forged",true,false};e::cleanOne(forged,j,log,noActions,unregistered);
+        check(exists(fixture),"P2-9 forged confirmation cannot bypass missing registered size");}
+    auto bounded=e::limitedDirectory(temp,0);check(bounded.size()==1,"P2-9 directory enumeration stops after budget plus one sentinel");
+    check(e::recoveryScanMatches(true,disk,volume(disk),disk) && !e::recoveryScanMatches(true,disk,volume(disk)^1,disk),"P2-9 recovery rejects a drive with a different scan-time serial");
+    key.dword(L"NoDrives",32);auto protectedPolicy=readRegistryValue(HKEY_CURRENT_USER,0,key.path,L"NoDrives",log);
+    {Journal broken(join(root,L"broken-journals"));CloseHandle(broken.h.h);broken.h.h=INVALID_HANDLE_VALUE;
+        rejects([&]{removeReviewedValue(protectedPolicy.at(0),true,broken,log);},"P2-9 registry backup write failure aborts removal");
+        check(RegQueryValueExW(key.h,L"NoDrives",nullptr,nullptr,nullptr,nullptr)==ERROR_SUCCESS,"P2-9 policy original remains when backup cannot be saved");}
+    BYTE binaryValue[3]={1,2,3};RegSetValueExW(key.h,L"Windows Settings",0,REG_BINARY,binaryValue,3);
+    auto binaryStartup=namedStartupCandidates({orphan},log);
+    check(binaryStartup.size()==1 && binaryStartup[0].type==REG_BINARY && binaryStartup[0].value.size()==3,"P2-9 independent named-value read preserves even non-string original bytes");
+    e::WalkBudget hostAlreadyExhausted;hostAlreadyExhausted.limited=true;
+    std::set<S> independentSeen;std::vector<Finding> independentFound;e::WalkBudget independentUsb;
+    e::scanTrees({root},fixtureScanner,independentSeen,independentFound,log,hostAlreadyExhausted);
+    e::scanTrees({expanded},fixtureScanner,independentSeen,independentFound,log,independentUsb);
+    check(independentFound.size()==1 && independentFound[0].confirmed && independentUsb.entries>0,"P2-9 host budget exhaustion does not consume independent selected USB budget");
+    std::vector<S> manyNotices(25,L"未检查：fixture access denied");manyNotices.push_back(L"达到 200000 项上限，检查不完整。");
+    check(scanReport({},manyNotices).details.find(L"达到 200000 项上限")!=S::npos,"P2-9 result retains budget-exhaustion notice even after many access failures");
+    e::WalkBudget excludedBudget;std::set<S> excludedSeen;std::vector<Finding> excludedFound;
+    e::scanTrees({system},fixtureScanner,excludedSeen,excludedFound,log,excludedBudget,{expanded});
+    check(excludedFound.empty() && excludedBudget.entries==0,"P2-9 explicit scan root inside excluded quarantine tree is never traversed");
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}

@@ -133,12 +133,13 @@ public:
             noLinks(p); auto n=size(p);
             std::vector<Finding> base; int missing=0;
             usb::inspect(p,base,log,missing);
-            if(!base.empty() && base[0].confirmed) { out.push_back(base[0]); return; }
+            if(!base.empty() && base[0].confirmed) { base[0].fileSize=n;out.push_back(base[0]); return; }
             S digest;
             if(n<=HASH_LIMIT) {
                 digest=hash(p);
                 if(const auto* rule=matchDigest(digest,table)) {
-                    out.push_back({p,digest,L"SHA-256 精确命中："+rule->family+L"；方案："+rule->solution+L"；来源："+rule->source,true,false});
+                    bool sizeOk=ruleSizeMatches(*rule,n);
+                    out.push_back({p,digest,(sizeOk?L"大小与 SHA-256 精确命中：":L"SHA-256 命中但登记大小缺失或不符，仅提示复核：")+rule->family+L"；方案："+rule->solution+L"；来源："+rule->source,sizeOk,false,ReviewKind::None,n});
                     return;
                 }
             } else ++oversized;
@@ -163,8 +164,12 @@ public:
                     if(scriptHint(decodeText(bytes(p)))) reason=L"脚本包含 USB 枚举、隐藏、快捷方式和驻留组合线索；仅供核查，不执行或自动隔离。";
                 } else if(n>=64 && frozenHint(bytes(p))) reason=L"FROZENHILL 配置字段组合线索（非完整 YARA）；需核查，不自动隔离。";
             } else ++contentSkipped;
-            if(!reason.empty()) out.push_back({p,digest,reason,false,extension(p,L".lnk")});
-            else if(!base.empty())out.push_back(base[0]);
+            WIN32_FILE_ATTRIBUTE_DATA info{};
+            if(!reason.empty() || !base.empty()) {
+                if(!GetFileAttributesExW(xp(p).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
+                if(!reason.empty())out.push_back({p,digest,reason,false,extension(p,L".lnk"),ReviewKind::None,n,info.ftCreationTime});
+                else {base[0].digest=digest;base[0].fileSize=n;base[0].created=info.ftCreationTime;out.push_back(base[0]);}
+            }
         } catch(const Error& e) { log(L"未检查："+p+L" — "+e.text); }
     }
 };
@@ -194,6 +199,21 @@ inline bool references(const S& command, const S& path) {
     return false;
 }
 struct WalkBudget { size_t entries=0; bool limited=false; };
+inline std::vector<Entry> limitedDirectory(const S& path,size_t remaining) {
+    noLinks(path);WIN32_FIND_DATAW data;HANDLE find=FindFirstFileW(xp(join(path,L"*")).c_str(),&data);
+    if(find==INVALID_HANDLE_VALUE){if(GetLastError()==ERROR_FILE_NOT_FOUND)return {};fail(L"列出目录："+path);}
+    std::vector<Entry> result;
+    try {
+        do {
+            if(!wcscmp(data.cFileName,L".") || !wcscmp(data.cFileName,L".."))continue;
+            result.push_back({join(path,data.cFileName),data.dwFileAttributes,((uint64_t)data.nFileSizeHigh<<32)|data.nFileSizeLow,data.ftLastWriteTime});
+            if(result.size()>remaining){FindClose(find);return result;}
+        }while(FindNextFileW(find,&data));
+        DWORD error=GetLastError();FindClose(find);find=INVALID_HANDLE_VALUE;
+        if(error!=ERROR_NO_MORE_FILES){SetLastError(error);fail(L"枚举目录："+path);}
+    }catch(...){if(find!=INVALID_HANDLE_VALUE)FindClose(find);throw;}
+    std::sort(result.begin(),result.end(),[](const Entry& a,const Entry& b){return lower(a.path)<lower(b.path);});return result;
+}
 inline void boundedWalk(const S& root, const std::function<void(const Entry&)>& visit, Log log, WalkBudget& budget, const std::vector<S>& excluded={}, Log directory={}) {
     std::vector<std::pair<S,int>> stack{{root,0}};
     while(!stack.empty() && !budget.limited) {
@@ -202,7 +222,7 @@ inline void boundedWalk(const S& root, const std::function<void(const Entry&)>& 
         if(current.second>128){log(L"达到目录深度 128 上限，检查不完整："+current.first);continue;}
         if(directory)directory(current.first);
         try {
-            for(const auto& e:list(current.first)) {
+            for(const auto& e:limitedDirectory(current.first,ENTRY_LIMIT-std::min(ENTRY_LIMIT,budget.entries))) {
                 if(++budget.entries>ENTRY_LIMIT){budget.limited=true;log(L"达到 200000 项上限，检查不完整。");return;}
                 if(e.attrs&FILE_ATTRIBUTE_REPARSE_POINT){log(L"跳过链接："+e.path);continue;}
                 if(e.attrs&FILE_ATTRIBUTE_DIRECTORY) {
@@ -225,6 +245,7 @@ inline void scanTrees(std::vector<S> roots,Scanner& scanner,std::set<S>& seen,st
     std::vector<S> traversed;
     for(const auto& dir:roots) {
         S path=lower(full(dir));bool covered=false;
+        for(const auto& excludedRoot:excluded)if(underPath(path,excludedRoot)){covered=true;break;}
         for(const auto& prior:traversed)if(underPath(path,prior)){covered=true;break;}
         if(covered)continue;
         if(budget.limited){log(L"预算用尽，未扫描范围："+dir);continue;}
@@ -247,14 +268,14 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
     if(!root.empty() && (full(root).size()!=3 || GetDriveTypeW(root.c_str())!=DRIVE_REMOVABLE))throw Error{L"加强版仅检查所选可移动卷，拒绝固定盘和网络盘"};
     Scanner scanner; wchar_t own[32768]; DWORD n=GetModuleFileNameW(nullptr,own,32768);
     if(n && n<32768)try{scanner.selfDigest=hash(S(own,n));}catch(const Error&){}
-    std::set<S> seen; std::vector<Finding> out;
-    auto inspect=[&](const S& p){if(!localAbsolute(p))return; if(seen.insert(lower(full(p))).second){report(p);scanner.inspect(p,out,log);++checked;report(p);}};
+    std::set<S> seen; std::vector<Finding> out;WalkBudget host;std::vector<S> excluded;
+    auto inspect=[&](const S& p){if(!localAbsolute(p) || host.limited)return;for(const auto& excludedRoot:excluded)if(underPath(p,excludedRoot)){log(L"跳过隔离目录引用："+p);return;} if(seen.size()>=ENTRY_LIMIT){host.limited=true;log(L"主机文件数量达到 200000 上限，检查不完整。");return;} if(seen.insert(lower(full(p))).second){report(p);scanner.inspect(p,out,log);++checked;report(p);}};
     log(L"加强版规则 "+S(RULE_VERSION)+L"：15 条精确指纹 + 原版 LNK + 7 类组合线索；新增家族未做真实感染测试。");
     wchar_t windows[MAX_PATH],temp[MAX_PATH]; GetWindowsDirectoryW(windows,MAX_PATH); GetTempPathW(MAX_PATH,temp);
     scanner.tempRoots.push_back(temp);scanner.riskRoots.push_back(windows);scanner.usbRoot=root;
     for(int id:{CSIDL_APPDATA,CSIDL_LOCAL_APPDATA})try{scanner.riskRoots.push_back(folder(id));}catch(const Error& e){log(e.text);}
     log(L"检查范围："+scopeDescription(options.expanded));
-    std::vector<S> top{windows}, recursive{temp}, excluded;
+    std::vector<S> top{windows}, recursive{temp};
     for(int id:{CSIDL_PROFILE,CSIDL_APPDATA,CSIDL_LOCAL_APPDATA,CSIDL_STARTUP,CSIDL_COMMON_STARTUP,CSIDL_COMMON_APPDATA,CSIDL_COMMON_DOCUMENTS}) {
         try {
             S p=folder(id);
@@ -266,9 +287,15 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
     }
     processes([&](DWORD,const S& p){inspect(p);},log);
     for(const auto& r:runs(log))for(const auto& p:referencedPaths(r.value))if(exists(p) && !(attr(p)&FILE_ATTRIBUTE_DIRECTORY))inspect(p);
-    for(const auto& dir:top)try{report(dir);for(const auto& e:list(dir))if(!(e.attrs&FILE_ATTRIBUTE_DIRECTORY))inspect(e.path);}catch(const Error& e){log(e.text);}
+    for(const auto& dir:top)try {
+        if(host.limited){log(L"预算用尽，未扫描范围："+dir);continue;}
+        report(dir);
+        for(const auto& entry:limitedDirectory(dir,ENTRY_LIMIT-std::min(ENTRY_LIMIT,host.entries))) {
+            if(++host.entries>ENTRY_LIMIT){host.limited=true;log(L"主机检查达到 200000 项上限，检查不完整。");break;}
+            if(!(entry.attrs&FILE_ATTRIBUTE_DIRECTORY))inspect(entry.path);
+        }
+    }catch(const Error& error){log(L"未读取目录："+dir+L" — "+error.text);}
     // 每个本机范围共用预算，U 盘另有独立预算，避免本机上限吞掉 U 盘检查。
-    WalkBudget host;
     if(options.expanded) {
         recursive.push_back(windows);
         try{recursive.push_back(folder(CSIDL_PROFILE));}catch(const Error& e){log(e.text);}
@@ -277,7 +304,7 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
         if(len && len<32768)recursive.push_back(programW6432);
     }
     scanTrees(recursive,scanner,seen,out,log,host,excluded,progress);
-    if(!root.empty()) { log(L"检查所选 U 盘："+root); WalkBudget usbBudget; boundedWalk(root,[&](const Entry& e){inspect(e.path);},log,usbBudget,{},report); }
+    if(!root.empty()) { log(L"检查所选 U 盘："+root); WalkBudget usbBudget; scanTrees({root},scanner,seen,out,log,usbBudget,{},progress); }
     if(scanner.oversized)log(L"未计算哈希："+num(scanner.oversized)+L" 个文件超过 64 MiB；这些文件不在精确指纹覆盖范围。");
     if(scanner.contentSkipped)log(L"未作内容/LNK 解析："+num(scanner.contentSkipped)+L" 个文件超过 1 MiB（小于等于 64 MiB 的文件已作哈希检查）。");
     log(L"加强版检查结束，共处理 "+num(seen.size())+L" 个不同路径。隔离目录不参与递归。");
@@ -310,7 +337,8 @@ inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& a
         if(size(f.path)>HASH_LIMIT || hash(f.path)!=f.digest)throw Error{L"文件已变化或超过处理上限，请重新检查"};
         const auto* rule=matchDigest(f.digest,table);
         const bool originalLink=f.link && extension(f.path,L".lnk") && wormLink(f.path);
-        if(!rule && !originalLink)throw Error{L"未命中当前内置规则，拒绝仅凭确认标记隔离"};
+        if((!rule || !ruleSizeMatches(*rule,size(f.path))) && !originalLink)throw Error{L"未满足当前内置大小与指纹规则，拒绝仅凭确认标记隔离"};
+        if(f.fileSize && f.fileSize!=size(f.path))throw Error{L"文件大小与检查快照不符"};
         if(!originalLink) {
             if(actions.stop)actions.stop(f,j,log);
             if(actions.persistence)actions.persistence(f,j,log);
@@ -397,6 +425,10 @@ inline Plan plan(const S& root0,const S& container0,bool test=false) {
         p.items.push_back({e.path,unique(join(root,name(e.path)),reserved),signature,e.attrs});
     }
     return p;
+}
+inline bool recoveryScanMatches(bool completed,const S& scannedRoot,DWORD serial,const S& selected) {
+    if(!completed || scannedRoot.empty() || selected.empty())return false;
+    try{return same(scannedRoot,selected) && serial==volume(selected);}catch(const Error&){return false;}
 }
 inline void requireRecoveryReady(bool scanned,const std::vector<Finding>& outstanding) {
     if(!scanned)throw Error{L"请先检查电脑和所选 U 盘，再恢复文件"};

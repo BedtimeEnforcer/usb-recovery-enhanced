@@ -70,7 +70,18 @@ int wmain(int argc,wchar_t** argv) {
         check(!scanning && !IsWindowVisible(progressBox) && !IsWindowVisible(scanPathBox),"completion stops progress and clears stale path");
         RECT pathRect,barRect,client;GetWindowRect(scanPathBox,&pathRect);GetWindowRect(progressBox,&barRect);GetClientRect(window,&client);
         check(pathRect.bottom<=barRect.top && client.bottom>0,"progress text and bar do not overlap");
+        HWND extended=GetDlgItem(window,ID_EXPANDED),review=GetDlgItem(window,ID_REVIEW);
+        check(extended && SendMessageW(extended,BM_GETCHECK,0,0)==BST_UNCHECKED && IsWindowEnabled(extended),"extended scope is opt-in and available after work");
+        check(review && IsWindowVisible(review),"manual review is a visible independent entry point");
+        showTextReport(L"fixture aftercare",aftercareChecklist());
+        HWND aftercare=FindWindowW(L"UsbReviewReport",L"fixture aftercare");
+        check(aftercare && text(GetDlgItem(aftercare,1)).find(L"UPnP")!=S::npos && text(GetDlgItem(aftercare,1)).find(L"新助记词")!=S::npos,"scrollable completion checklist exposes network and credential instructions");
+        DestroyWindow(aftercare);
+        showTextReport(L"fixture scope",enhanced::scopeDescription(false));
+        HWND scope=FindWindowW(L"UsbReviewReport",L"fixture scope");
+        check(scope && text(GetDlgItem(scope,1)).find(L"未扫描位置")!=S::npos,"scrollable result exposes unscanned locations");
+        DestroyWindow(scope);
         DestroyWindow(window);
-        std::cout<<"TOTAL PASS 7"<<std::endl;return 0;
+        std::cout<<"TOTAL PASS 11"<<std::endl;return 0;
     }catch(const Error& e){std::cerr<<utf8(e.text)<<std::endl;return 1;}
 }

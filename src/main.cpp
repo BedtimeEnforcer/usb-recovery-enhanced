@@ -9,8 +9,7 @@ using namespace usb;
 #include "enhanced_engine.hpp"
 namespace app = enhanced;
 static std::vector<RegistrySnapshot> policyFindings, startupFindings;
-static bool scanCompleted=false;
-static S scannedRoot, lastScanDetails;
+
 static const wchar_t* const APP_TITLE = L"U 盘修复助手 · 加强版";
 #else
 namespace app = usb;
@@ -47,6 +46,10 @@ HICON appIcon, appIcon40, appIconSmall;
 bool busy = false;
 std::vector<S> roots, folders;
 std::vector<Finding> findings;
+static std::vector<Finding> recentlyIsolated;
+static bool scanCompleted=false;
+static S scannedRoot, lastScanDetails;
+static DWORD scannedVolume=0;
 Plan pending;
 enum { ID_SCAN = 101, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_ABOUT, ID_DRIVE, ID_FOLDER, ID_RULES, ID_LOG_TOGGLE, ID_REVIEW = 113, ID_EXPANDED };
 static SRWLOCK scanLock = SRWLOCK_INIT;
@@ -156,7 +159,7 @@ static void paintAll(HDC dc, const RECT& client)
     RECT note=heading;note.left=rcCard1.left+PX(220);
     drawTextAt(dc,L"选择 U 盘时，会同时检查电脑",note,smallFont,C_SUB,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
     const wchar_t* titles[]={L"检查威胁",L"隔离确认项",L"恢复隐藏文件"};
-    const wchar_t* descriptions[]={L"检查电脑与所选 U 盘\n只检查，不更改文件",L"仅处理已确认的威胁\n结果会逐项弹窗显示",L"预览后恢复，重名保留\n先清理电脑传播源"};
+    const wchar_t* descriptions[]={L"检查电脑与所选 U 盘\n只检查，不更改文件",L"仅处理已确认的威胁\n人工核查须逐项确认",L"预览后恢复，重名保留\n先清理电脑传播源"};
     for(int i=0;i<3;++i) {
         const RECT& card=rcSteps[i];fillRound(dc,card,PX(12),C_CARD,C_BORDER);
         RECT number{card.left+PX(18),card.top+PX(18),card.left+PX(50),card.top+PX(48)};
@@ -370,6 +373,7 @@ void doScan()
         ,options
 #endif
     ] {
+        DWORD initialVolume=root.empty()?0:volume(root);
         findings.clear();
         findings = app::scan(root, [notices](const S& s) {
             if (scanNotice(s)) notices->push_back(s);
@@ -380,21 +384,24 @@ void doScan()
 #endif
         );
 #ifdef USB_ENHANCED
-        startupFindings = namedStartupCandidates(runs([notices](const S& line){notices->push_back(line);logLine(line);}),logLine);
+        startupFindings = namedStartupCandidates([notices](const S& line){notices->push_back(line);logLine(line);});
         for(const auto& startup:startupFindings)logLine(L"需人工确认启动项 | "+registryLocation(startup)+L" | "+registryValueText(startup));
         policyFindings = noDrivesPolicies([notices](const S& line){notices->push_back(line);logLine(line);});
         for(const auto& policy:policyFindings)logLine(L"需人工确认策略 | "+registryLocation(policy)+L" | "+registryValueText(policy));
 #endif
+        if(!root.empty() && volume(root)!=initialVolume)throw Error{L"检查期间磁盘已更换，请重新检查"};
+        scannedVolume=initialVolume;
         size_t yes = 0;
         for (auto& f : findings) { if (f.confirmed) yes++; logLine((f.confirmed ? L"已确认 | " : L"需核查 | ") + f.path + L" | " + f.reason); }
         logLine(L"确认命中 " + num(yes) + L" 项；需核查 " + num(findings.size() - yes) + L" 项。未命中不代表整机无毒。");
     }, [notices,root] {
-        scanCompleted=true;scannedRoot=root;
+        scanCompleted=true;scannedRoot=root;recentlyIsolated.clear();
         // 弹窗只展示命中结果；检查细节已写入日志。
         std::vector<Finding> confirmed;
         for (auto& f : findings) if (f.confirmed) confirmed.push_back(f);
         auto result = scanReport(findings, *notices);
         lastScanDetails=result.details;
+        if(notices->size()>20){lastScanDetails+=L"\r\n\r\n【全部检查限制记录】";for(const auto& line:*notices)lastScanDetails+=L"\r\n"+line;}
         if(!policyFindings.empty() || !startupFindings.empty()) {
             result.warning=true;
             result.content+=L"\r\n有 "+num(startupFindings.size())+L" 个指定启动项、"+num(policyFindings.size())+L" 个隐藏磁盘策略需确认，点“人工核查”逐项查看。";
@@ -426,6 +433,7 @@ void startClean(const std::vector<Finding>& confirmed)
     }, [collected] {
         for(const auto& line:*collected)if(line.rfind(L"已隔离：",0)==0) {
             S path=line.substr(S(L"已隔离：").size());
+            for(const auto& f:findings)if(same(f.path,path))recentlyIsolated.push_back(f);
             findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path) && !exists(path);}),findings.end());
         }
         showCleanResult(*collected);
@@ -478,7 +486,7 @@ void doReview() {
             std::vector<S> processPaths;processes([&](DWORD,const S& path){processPaths.push_back(path);},[logs](const S& line){logs->push_back(line);logLine(line);});
             enhanced::postCleanReview(approved,processPaths,[logs](const S& line){logs->push_back(line);logLine(line);});
         },[logs]{
-            for(const auto& line:*logs)if(line.rfind(L"已隔离：",0)==0){S path=line.substr(S(L"已隔离：").size());findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path)&&!exists(path);}),findings.end());}
+            for(const auto& line:*logs)if(line.rfind(L"已隔离：",0)==0){S path=line.substr(S(L"已隔离：").size());for(const auto& f:findings)if(same(f.path,path))recentlyIsolated.push_back(f);findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path)&&!exists(path);}),findings.end());}
             showCleanResult(*logs);
         });
     } else if(choice==202 || choice==203) {
@@ -520,6 +528,11 @@ void doClean()
     startClean(confirmed);
 }
 #ifdef USB_ENHANCED
+void checkRecentSources() {
+    if(recentlyIsolated.empty())return;
+    std::vector<S> paths;processes([&](DWORD,const S& path){paths.push_back(path);},logLine);
+    if(enhanced::postCleanReview(recentlyIsolated,paths,logLine))throw Error{L"刚隔离的文件或对应进程仍存在或重现，请重新检查并处理后再恢复"};
+}
 void offerDeleteEmpty(const Plan& p) {
     if(!enhanced::canDeleteEmptyContainer(p))return;
     TASKDIALOG_BUTTON button{301,L"删除空的 U+FFFF 文件夹"};
@@ -541,11 +554,17 @@ void doRestore()
         return;
     }
 #ifdef USB_ENHANCED
-    try{enhanced::requireRecoveryReady(scanCompleted && !scannedRoot.empty() && same(scannedRoot,root),findings);}
+    try{enhanced::requireRecoveryReady(enhanced::recoveryScanMatches(scanCompleted,scannedRoot,scannedVolume,root),findings);}
     catch(const Error& e){msgBox(L"请先完成检查与隔离",L"暂不能恢复",e.text,TDCBF_OK_BUTTON,TD_WARNING_ICON);return;}
 #endif
     S container = folders[i];
-    run(L"正在检查内容并生成恢复预览……", [root, container] { pending = app::plan(root, container); }, [container] {
+    run(L"正在检查内容并生成恢复预览……", [root, container] {
+#ifdef USB_ENHANCED
+        enhanced::requireRecoveryReady(enhanced::recoveryScanMatches(scanCompleted,scannedRoot,scannedVolume,root),findings);
+        checkRecentSources();
+#endif
+        pending = app::plan(root, container);
+    }, [container] {
         if (pending.items.empty()) {
 #ifdef USB_ENHANCED
             if(enhanced::canDeleteEmptyContainer(pending)){offerDeleteEmpty(pending);return;}
@@ -578,7 +597,8 @@ void doRestore()
             Plan p = pending;
             run(L"正在恢复，请勿拔出 U 盘……", [p] {
 #ifdef USB_ENHANCED
-                enhanced::requireRecoveryReady(scanCompleted && same(scannedRoot,p.root),findings);
+                enhanced::requireRecoveryReady(enhanced::recoveryScanMatches(scanCompleted,scannedRoot,scannedVolume,p.root),findings);
+                checkRecentSources();
 #endif
                 Journal j(data()); app::recover(p, j, logLine);
             }, [p] {

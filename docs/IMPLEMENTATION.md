@@ -66,3 +66,32 @@
 - 规则、程序说明、README 对齐默认/扩展范围和预算，明确尚未进行加强版虚拟机真实感染验收、恢复成功不等于清毒；没有发布样本链接或密码。
 - 原有结果测试保留 14 个用例，调整预期以验证新的范围警告、失败置顶和谨慎用语；没有删除测试以凑通过数。
 - 主程序语法检查通过；完整实际测试结果由任务 9 记录。
+
+
+## 任务 9：实际构建、回归与交付
+
+- 实际执行 `build-enhanced.ps1 -ToolchainBin <现有 MinGW-w64 工具链 bin> -Tests`，不是引用旧计数。
+- 最终结果：18 项基础引擎 + 14 项结果汇总 + 57 项加强版 + 64 项新增修复测试 + 11 项实际进度/核查界面测试，**164/164 通过**。原有 96 个用例全部保留；新增 64 项修复测试与 4 项界面测试。
+- `ui-results-smoke.ps1 -Enhanced` 对最终 EXE 的首页必阅、无确认项提示、折叠/展开记录、规则窗口和正常退出检查通过，并查看了实际截图。
+- 所有测试使用无害文件、临时测试指纹、精确路径动作 mock 和一次性注册表测试键，没有执行病毒、终止真实恶意进程、修改真实用户策略或重启机器。
+- 最终版本 0.4.0；规则版本 2026.10.25.2。没有数字签名。
+- 审查发现的额外门禁修正：扫描卷序列号与恢复时一致；恢复前复查最近隔离路径；目录枚举在预算 + 1 哨兵处停止；主机耗尽预算不会跳过独立 U 盘扫描；启动值名直接查询不依赖 Run 命令解析；超限记录不会被大量访问失败淹没。
+- 规则大小边界：原版样本登记 85,504 字节；其余 14 条公开 SHA-256 在现有资料中未登记可核实大小，改为仅提示复核，不自动隔离。无害测试规则提供明确大小来验证完整处置路径。没有为满足测试而猜造真实样本大小。
+
+## 全局硬性约束 1–7 提交前自查
+
+| 约束 | 状态 | 代码与测试证据 |
+|---|---|---|
+| 1. 非空 U+FFFF 不得删除 | 已遵守 | [src/enhanced_engine.hpp:456](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L456)；P0-4 新用户文件出现拒绝删除测试；未使用递归删除调用 |
+| 2. 自动隔离只接受登记大小 + SHA-256 或原版精确 cmd 诱饵 | 已遵守 | [src/enhanced_engine.hpp:333](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L333)、[src/enhanced_rules.hpp:38](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_rules.hpp#L38)；伪造 confirmed 和缺少登记大小的回归测试 |
+| 3. 恢复跳过顶层程序、拒绝嵌套可疑入口、重名保留及过期拒绝 | 已遵守 | [src/enhanced_engine.hpp:413](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L413)；原有恢复回归用例 + P0-4 嵌套拒绝测试 |
+| 4. 备份失败不继续删，删除失败恢复原属性 | 已遵守 | [src/engine.hpp:147](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/engine.hpp#L147)；该函数与审读基线逐字一致；原有备份校验/源文件保留测试；新增注册表备份写失败保留原值测试 |
+| 5. 有界扫描、跳过规则与可查看限制 | 已遵守 | [src/enhanced_engine.hpp:202](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L202)、[src/enhanced_engine.hpp:217](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L217)、[src/ui_results.hpp:27](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/ui_results.hpp#L27)；主机预算耗尽不占用 U 盘预算，超限在多条访问失败后仍显示 |
+| 6. 不重新公开样本/链接/密码 | 已遵守 | 仅保留原指纹的 samples/README.md 与已撤样本的 SECURITY.md 原文；当前受控文件无旧样本下载链接；发布包按白名单组成并逐项检查 |
+| 7. 验收状态、实际范围与谨慎措辞 | 已遵守 | [src/ui_results.hpp:10](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/ui_results.hpp#L10)、[src/enhanced_engine.hpp:236](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L236)、[src/enhanced_rules.hpp:42](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_rules.hpp#L42)；README 保留尚未验收声明 |
+
+## 明确未完成的验收
+
+**尚未进行加强版虚拟机真实感染验收。** 没有验证真实变种、看门狗持续复活、内存注入、全部计划任务/服务或网络侧清理。不能据此宣称已经完整清除 Phorpiex/Twizt 或全部残留。
+
+任务书中的冲突按全局硬性约束执行：仅 dat 文件名匹配不当作确诊；只有逐项人工同意并重新校验后才处理候选。配套静态分析报告未提供，未声称对其未提供的内容进行了独立复核。

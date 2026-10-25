@@ -31,7 +31,8 @@ inline UiReport scanReport(const std::vector<Finding>& findings, const std::vect
     size_t limitations=0;
     for(size_t i=0;i<notices.size();++i) {
         if(notices[i].rfind(L"检查范围：",0)!=0)++limitations;
-        if(i<20)r.details+=L"\r\n"+notices[i];
+        bool important=notices[i].find(L"上限")!=S::npos || notices[i].find(L"预算用尽")!=S::npos || notices[i].find(L"范围不可用")!=S::npos;
+        if(i<20 || important)r.details+=L"\r\n"+notices[i];
     }
     if(notices.size()>20)r.details+=L"\r\n其余记录请展开操作记录或导出日志查看。";
     for (const auto& f : findings) {

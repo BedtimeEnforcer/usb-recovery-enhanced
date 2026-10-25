@@ -51,11 +51,11 @@ int wmain(int argc,wchar_t** argv) {
         check(valid && unique.size()==15,"15 unique well-formed sourced fingerprints");
         check(e::matchDigest(lower(e::rules()[5].digest))->family==e::rules()[5].family,"catalog lookup accepts lowercase SHA256");
         check(!e::matchDigest(L"bad") && !e::matchDigest(S(64,L'0')),"unknown and malformed hashes rejected");
-        check(e::rulesText().find(L"未做真实感染测试")!=S::npos && e::rulesText().find(L"SHA-256")!=S::npos,"offline catalog includes provenance and validation limits");
+        check(e::rulesText().find(L"尚未进行加强版虚拟机真实感染验收")!=S::npos && e::rulesText().find(L"SHA-256")!=S::npos,"offline catalog includes provenance and validation limits");
 
         auto quiet=[](const S&){};
         S exact=join(root,L"renamed-payload.data");textFile(exact,L"inert exact-match test data");S digest=hash(exact);
-        std::vector<e::HashRule> fixtureRules{{digest,L"TEST ONLY",L"local inert fixture",L"fixture remediation"}};
+        std::vector<e::HashRule> fixtureRules{{digest,L"TEST ONLY",L"local inert fixture",L"fixture remediation",size(exact)}};
         e::Scanner scanner(fixtureRules);std::vector<Finding> found;scanner.inspect(exact,found,quiet);
         check(found.size()==1 && found[0].confirmed && found[0].digest==digest,"exact matching works for new sizes and arbitrary extensions");
         S innocent=join(root,L"DrvMgr.exe");textFile(innocent,L"harmless same name");found.clear();scanner.inspect(innocent,found,quiet);
@@ -107,7 +107,7 @@ int wmain(int argc,wchar_t** argv) {
         e::HostActions mock{[&](const Finding&,Journal&,Log){++stopCalls;},[&](const Finding&,Journal&,Log log){++runCalls;log(L"启动项移除失败（测试）：fixture — denied");}};
         std::vector<S> logs;Finding f{exact,digest,L"test",true,false};
         {Journal j(join(root,L"journals"));e::cleanOne(f,j,[&](const S& s){logs.push_back(s);},mock,fixtureRules);check(!exists(exact) && hash(join(j.dir,L"1.quarantine"))==digest,"new-family cleanup verifies quarantine backup before removal");}
-        auto report=cleanReport(logs);check(stopCalls==1 && runCalls==1 && report.warning && report.anyIsolated && report.content.find(L"完整杀毒软件")!=S::npos && report.content.find(L"开机启动项未清除")!=S::npos,"startup failure and incomplete family remediation remain visible after isolation");
+        auto report=cleanReport(logs);check(stopCalls==1 && runCalls==1 && report.warning && report.anyIsolated && report.content.find(L"完整杀毒软件")!=S::npos && report.content.find(L"启动项未清除")!=S::npos,"startup failure and incomplete family remediation remain visible after isolation");
         e::HostActions noHost;
         S unknown=join(root,L"unknown.bin");textFile(unknown,L"unknown");logs.clear();
         {Journal j(join(root,L"journals"));e::cleanOne({unknown,hash(unknown),L"forged confirmed",true,false},j,[&](const S&s){logs.push_back(s);},noHost);}

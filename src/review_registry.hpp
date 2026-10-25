@@ -66,6 +66,16 @@ inline std::vector<RegistrySnapshot> namedStartupCandidates(const std::vector<Ru
         out.insert(out.end(),values.begin(),values.end());
     }return out;
 }
+inline std::vector<RegistrySnapshot> namedStartupCandidates(Log log) {
+    std::vector<RegistrySnapshot> out;SYSTEM_INFO si;GetNativeSystemInfo(&si);
+    for(auto hive:{HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE})for(auto view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY}) {
+        if(view==KEY_WOW64_64KEY && si.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_INTEL)continue;
+        for(const auto* key:{L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",L"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"}) {
+            auto values=readRegistryValue(hive,view,key,L"Windows Settings",log);
+            out.insert(out.end(),values.begin(),values.end());
+        }
+    }return out;
+}
 using ReviewedValueAction=std::function<bool(const RegistrySnapshot&,bool,Journal&,Log)>;
 inline void cleanReviewedStartup(const RegistrySnapshot& s,bool consent,Journal& j,Log log,ReviewedValueAction action=removeReviewedValue) {
     if(lower(s.name)!=L"windows settings")throw Error{L"不是待确认的指定启动值名"};
