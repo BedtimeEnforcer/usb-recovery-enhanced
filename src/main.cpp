@@ -45,7 +45,7 @@ bool busy = false;
 std::vector<S> roots, folders;
 std::vector<Finding> findings;
 Plan pending;
-enum { ID_SCAN = 101, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_ABOUT, ID_DRIVE, ID_FOLDER, ID_RULES, ID_LOG_TOGGLE, ID_REVIEW = 113 };
+enum { ID_SCAN = 101, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_ABOUT, ID_DRIVE, ID_FOLDER, ID_RULES, ID_LOG_TOGGLE, ID_REVIEW = 113, ID_EXPANDED };
 static SRWLOCK scanLock = SRWLOCK_INIT;
 static S scanPath;
 static size_t scanChecked = 0;
@@ -189,7 +189,7 @@ static void paintAll(HDC dc, const RECT& client)
 
 // 统一消息框：用 TaskDialog 排版（标题栏 + 粗体主指令 + 正文 + 图标 + 按钮），比 MessageBox 更整洁、层次分明。
 // 老系统不支持 TaskDialog 时自动回退到 MessageBox。
-static int msgBox(const S& title, const S& main, const S& content, TASKDIALOG_COMMON_BUTTON_FLAGS buttons = TDCBF_OK_BUTTON, PCWSTR icon = TD_INFORMATION_ICON, const S& details = L"")
+static int msgBox(const S& title, const S& main, const S& content, TASKDIALOG_COMMON_BUTTON_FLAGS buttons = TDCBF_OK_BUTTON, PCWSTR icon = TD_INFORMATION_ICON, const S& details = L"", const S& expandLabel=L"查看善后与复查清单")
 {
     TASKDIALOGCONFIG cfg{};
     cfg.cbSize = sizeof(cfg);
@@ -202,7 +202,7 @@ static int msgBox(const S& title, const S& main, const S& content, TASKDIALOG_CO
     cfg.pszContent = content.c_str();
     if(!details.empty()) {
         cfg.pszExpandedInformation=details.c_str();
-        cfg.pszExpandedControlText=L"查看善后与复查清单";
+        cfg.pszExpandedControlText=expandLabel.c_str();
         cfg.pszCollapsedControlText=L"收起详细清单";
     }
     cfg.pszMainIcon = icon;
@@ -275,7 +275,7 @@ void updateDrives()
     updateFolders();
 }
 void enable(bool yes) {
-    for (int id : { ID_SCAN, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_DRIVE, ID_FOLDER }) EnableWindow(GetDlgItem(window, id), yes);
+    for (int id : { ID_SCAN, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_DRIVE, ID_FOLDER, ID_EXPANDED }) EnableWindow(GetDlgItem(window, id), yes);
 #ifdef USB_ENHANCED
     if(yes)EnableWindow(folderBox,!folders.empty());
 #endif
@@ -356,14 +356,25 @@ void doScan()
 {
     S root = selectedRoot();
     if (busy) return;
+#ifdef USB_ENHANCED
+    enhanced::ScanOptions options;options.expanded=SendMessageW(GetDlgItem(window,ID_EXPANDED),BM_GETCHECK,0,0)==BST_CHECKED;
+#endif
     startScanProgress();
     auto notices = std::make_shared<std::vector<S>>();
-    run(L"正在检查，请稍候……", [root, notices] {
+    run(L"正在检查，请稍候……", [root, notices
+#ifdef USB_ENHANCED
+        ,options
+#endif
+    ] {
         findings.clear();
         findings = app::scan(root, [notices](const S& s) {
             if (scanNotice(s)) notices->push_back(s);
             logLine(s);
-        }, scanProgress);
+        }, scanProgress
+#ifdef USB_ENHANCED
+        ,options
+#endif
+        );
 #ifdef USB_ENHANCED
         startupFindings = namedStartupCandidates(runs([notices](const S& line){notices->push_back(line);logLine(line);}),logLine);
         for(const auto& startup:startupFindings)logLine(L"需人工确认启动项 | "+registryLocation(startup)+L" | "+registryValueText(startup));
@@ -380,12 +391,12 @@ void doScan()
         auto result = scanReport(findings, *notices);
         if (confirmed.empty()) {
             msgBox(L"检查完成", result.headline, result.content,
-                   TDCBF_OK_BUTTON, result.warning ? TD_WARNING_ICON : TD_INFORMATION_ICON);
+                   TDCBF_OK_BUTTON, result.warning ? TD_WARNING_ICON : TD_INFORMATION_ICON, result.details,L"查看范围与未检查位置");
             return;
         }
         if (msgBox(L"检查完成", result.headline,
                    result.content,
-                   TDCBF_YES_BUTTON | TDCBF_NO_BUTTON, TD_WARNING_ICON) != IDYES) return;
+                   TDCBF_YES_BUTTON | TDCBF_NO_BUTTON, TD_WARNING_ICON,result.details,L"查看范围与未检查位置") != IDYES) return;
         if (!admin()) {
             msgBox(L"需要管理员权限", L"杀毒需要管理员权限",
                    L"请关闭程序，右键此 EXE，选择“以管理员身份运行”，再重新检查。",
@@ -601,6 +612,7 @@ void createChildren()
     ShowWindow(progressBox, SW_HIDE); ShowWindow(scanPathBox, SW_HIDE);
     statusBox = control(L"STATIC", L"就绪 · 检查不会修改被检查文件", 0, 0, 44, 700, 900, 24);
 #ifdef USB_ENHANCED
+    control(L"BUTTON",L"扩展检查：系统子目录、桌面/文档/下载、Program Files（较慢）",BS_AUTOCHECKBOX,ID_EXPANDED,0,0,1,1);
     control(L"BUTTON",L"人工核查",BS_OWNERDRAW,ID_REVIEW,0,0,1,1);
     ShowWindow(logBox,SW_HIDE);
 #endif
@@ -627,6 +639,7 @@ void layout()
     MoveWindow(GetDlgItem(window,ID_REVIEW),W-M-PX(334),PX(29),PX(92),PX(32),TRUE);
     MoveWindow(GetDlgItem(window,ID_RULES),W-M-PX(232),PX(29),PX(150),PX(32),TRUE);
     MoveWindow(GetDlgItem(window,ID_ABOUT),W-M-PX(72),PX(29),PX(72),PX(32),TRUE);
+    MoveWindow(GetDlgItem(window,ID_EXPANDED),M+PAD,PX(207),W-2*M-2*PAD,PX(20),TRUE);
     const int stepWidth=(W-2*M-PX(24))/3;
     const int ids[]={ID_SCAN,ID_CLEAN,ID_RESTORE};
     for(int i=0;i<3;++i) {

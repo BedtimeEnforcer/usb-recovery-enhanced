@@ -61,6 +61,18 @@ int wmain(int argc,wchar_t** argv){try{
     auto indirect=namedStartupCandidates({orphan},log);
     check(indirect.size()==1 && registryValueText(indirect[0]).find(L"rundll32")!=S::npos,"P0-2 indirect named startup is listed for confirmation");
     check(e::references(L"\"C:\\fixture\\confirmed.exe\" /a",L"C:\\fixture\\confirmed.exe"),"P0-2 direct confirmed-file reference still matches");
+    S expanded=join(root,L"Windows"),system=join(expanded,L"System32");mkdir(expanded);mkdir(system);
+    S fixture=join(system,L"harmless.bin");textFile(fixture,L"harmless expanded scope hash fixture");
+    std::vector<e::HashRule> fixtureRules{{hash(fixture),L"fixture",L"local harmless",L"fixture only"}};
+    e::Scanner fixtureScanner(fixtureRules);std::set<S> seen;std::vector<Finding> found; e::WalkBudget scopeBudget;
+    e::scanTrees({expanded},fixtureScanner,seen,found,log,scopeBudget);
+    check(found.size()==1 && found[0].confirmed && same(found[0].path,fixture),"P0-3 expanded tree traversal detects harmless custom fingerprint in System32 fixture");
+    check(e::scopeDescription(false).find(L"未扫描位置")!=S::npos && e::scopeDescription(false).find(L"桌面/文档/下载")!=S::npos && e::scopeDescription(true).find(L"扩展检查已启用")!=S::npos,"P0-3 both modes list actual scope and blind spots");
+    auto coverage=scanReport({}, {L"检查范围："+e::scopeDescription(false),L"未读取目录：fixture [5]"});
+    check(coverage.details.find(L"未扫描位置")!=S::npos && coverage.details.find(L"fixture [5]")!=S::npos && coverage.details.find(L"未命中不代表整机无毒")!=S::npos,"P0-3 scan result retains scope and access failures in expandable details");
+    e::WalkBudget exhausted;exhausted.limited=true;std::vector<S> coverageLogs;
+    e::scanTrees({expanded},fixtureScanner,seen,found,[&](const S& line){coverageLogs.push_back(line);},exhausted);
+    check(!coverageLogs.empty() && coverageLogs[0].find(L"预算用尽")!=S::npos,"P0-3 exhausted budget records roots that were not scanned");
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}

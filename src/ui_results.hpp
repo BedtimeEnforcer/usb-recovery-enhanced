@@ -24,9 +24,11 @@ inline bool scanNotice(const S& line) {
     return true;
 }
 
-inline UiReport scanReport(const std::vector<Finding>& findings, const std::vector<S>& /*notices*/) {
+inline UiReport scanReport(const std::vector<Finding>& findings, const std::vector<S>& notices) {
     UiReport r;
     size_t confirmed = 0, unknown = 0;
+    r.details=L"未命中不代表整机无毒。\r\n以下为本次范围和未检查记录：";
+    for(const auto& notice:notices)r.details+=L"\r\n"+notice;
     for (const auto& f : findings) {
         if (f.confirmed) ++confirmed;
         else ++unknown;

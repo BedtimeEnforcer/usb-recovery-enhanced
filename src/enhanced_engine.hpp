@@ -235,7 +235,34 @@ inline void boundedWalk(const S& root, const std::function<void(const Entry&)>& 
         } catch(const Error& e){log(L"未读取目录："+current.first+L" — "+e.text);}
     }
 }
-inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={}) {
+struct ScanOptions { bool expanded=false; };
+inline S scopeDescription(bool expanded) {
+    S text=L"【实际扫描范围】\r\n主机：运行中进程映像、Run/RunOnce 明确绝对本地引用；Windows 和当前用户目录顶层；Temp、AppData、启动目录、ProgramData、Public 有界递归。\r\nU 盘：仅所选可移动卷；不选择时不检查 U 盘。\r\n";
+    if(expanded)text+=L"扩展检查已启用：Windows 子目录（包括 System32/SysWOW64）、当前用户目录（包括桌面/文档/下载）、Program Files 的有界递归。\r\n";
+    else text+=L"【未扫描位置】\r\nWindows 子目录、当前用户非 AppData 子目录（桌面/文档/下载等）、Program Files；其运行进程映像或明确 Run 引用文件可能单独检查。可勾选扩展检查补查。\r\n";
+    text+=L"【始终不覆盖或可能受限】\r\n其他用户目录、其他未选择磁盘、网络盘/UNC、压缩包内部、内存注入、服务/计划任务的全面检查；重解析路径、回收站、系统卷信息、隔离目录跳过。主机与所选 U 盘各 200000 项、深度 128；哈希上限 64 MiB，内容/LNK 上限 1 MiB；预算用尽后的路径不再读取，访问失败见下方记录。\r\n未命中不代表整机无毒。";
+    return text;
+}
+inline void scanTrees(std::vector<S> roots,Scanner& scanner,std::set<S>& seen,std::vector<Finding>& out,Log log,WalkBudget& budget,const std::vector<S>& excluded={},ScanProgress progress={}) {
+    std::sort(roots.begin(),roots.end(),[](const S& a,const S& b){return a.size()<b.size();});
+    std::vector<S> traversed;
+    for(const auto& dir:roots) {
+        S path=lower(full(dir));bool covered=false;
+        for(const auto& prior:traversed)if(underPath(path,prior)){covered=true;break;}
+        if(covered)continue;
+        if(budget.limited){log(L"预算用尽，未扫描范围："+dir);continue;}
+        if(!exists(dir)){DWORD error=GetLastError();log(L"范围不可用，未扫描："+dir+L" ["+num(error)+L"]");continue;}
+        traversed.push_back(path);
+        boundedWalk(dir,[&](const Entry& entry){
+            if(seen.insert(lower(full(entry.path))).second) {
+                if(progress)progress(entry.path,seen.size()-1);
+                scanner.inspect(entry.path,out,log);
+                if(progress)progress(entry.path,seen.size());
+            }
+        },log,budget,excluded,[&](const S& dirPath){if(progress)progress(dirPath,seen.size());});
+    }
+}
+inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={},const ScanOptions& options={}) {
     NativeFs native;
     size_t checked=0;
     auto report=[&](const S& p){if(progress)progress(p,checked);};
@@ -248,6 +275,7 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
     log(L"加强版规则 "+S(RULE_VERSION)+L"：15 条精确指纹 + 原版 LNK + 7 类组合线索；新增家族未做真实感染测试。");
     wchar_t windows[MAX_PATH],temp[MAX_PATH]; GetWindowsDirectoryW(windows,MAX_PATH); GetTempPathW(MAX_PATH,temp);
     scanner.tempRoots.push_back(temp);
+    log(L"检查范围："+scopeDescription(options.expanded));
     std::vector<S> top{windows}, recursive{temp}, excluded;
     for(int id:{CSIDL_PROFILE,CSIDL_APPDATA,CSIDL_LOCAL_APPDATA,CSIDL_STARTUP,CSIDL_COMMON_STARTUP,CSIDL_COMMON_APPDATA,CSIDL_COMMON_DOCUMENTS}) {
         try {
@@ -263,13 +291,14 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
     for(const auto& dir:top)try{report(dir);for(const auto& e:list(dir))if(!(e.attrs&FILE_ATTRIBUTE_DIRECTORY))inspect(e.path);}catch(const Error& e){log(e.text);}
     // 每个本机范围共用预算，U 盘另有独立预算，避免本机上限吞掉 U 盘检查。
     WalkBudget host;
-    std::sort(recursive.begin(),recursive.end(),[](const S& a,const S& b){return a.size()<b.size();});
-    std::vector<S> traversed;
-    for(const auto& dir:recursive) {
-        S path=lower(full(dir)); bool covered=false;
-        for(const auto& prior:traversed)if(path==prior || path.rfind(prior+L"\\",0)==0){covered=true;break;}
-        if(!covered && exists(dir)) { traversed.push_back(path); boundedWalk(dir,[&](const Entry& e){inspect(e.path);},log,host,excluded,report); }
+    if(options.expanded) {
+        recursive.push_back(windows);
+        try{recursive.push_back(folder(CSIDL_PROFILE));}catch(const Error& e){log(e.text);}
+        for(int id:{CSIDL_PROGRAM_FILES,CSIDL_PROGRAM_FILESX86})try{recursive.push_back(folder(id));}catch(const Error& e){log(e.text);}
+        wchar_t programW6432[32768];DWORD len=GetEnvironmentVariableW(L"ProgramW6432",programW6432,32768);
+        if(len && len<32768)recursive.push_back(programW6432);
     }
+    scanTrees(recursive,scanner,seen,out,log,host,excluded,progress);
     if(!root.empty()) { log(L"检查所选 U 盘："+root); WalkBudget usbBudget; boundedWalk(root,[&](const Entry& e){inspect(e.path);},log,usbBudget,{},report); }
     if(scanner.oversized)log(L"未计算哈希："+num(scanner.oversized)+L" 个文件超过 64 MiB；这些文件不在精确指纹覆盖范围。");
     if(scanner.contentSkipped)log(L"未作内容/LNK 解析："+num(scanner.contentSkipped)+L" 个文件超过 1 MiB（小于等于 64 MiB 的文件已作哈希检查）。");

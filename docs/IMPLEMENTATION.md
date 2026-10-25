@@ -20,3 +20,11 @@
 - `main.cpp::doReview`：新增启动项人工确认入口；HKLM 等处理保留管理员门禁。
 - `ui_results.hpp::cleanReport`：启动项失败在正文第一项，标题说明仍有启动项未清除，并要求重启后复查。
 - 验证：`remediation-tests` 累计 19 项通过（本任务新增 6 项），涵盖直接引用、孤儿值、间接引用、拒绝访问模拟；只操作一次性测试键。
+
+## 任务 3：可选扩展检查与实际范围
+
+- `enhanced_engine.hpp::ScanOptions/scopeDescription/scanTrees`：默认保留原有范围；可选扩展 Windows、当前用户目录和 Program Files，使用同一个主机 200000 项预算，U 盘仍有独立预算。未扫描根目录、访问失败和超限记录保留。
+- `main.cpp`：新增扩展检查复选框；扫描结果可展开“范围与未检查位置”。
+- `ui_results.hpp::scanReport`：保留实际扫描范围、盲区、访问失败，未命中不代表整机无毒。
+- 不默认扩大的原因：此前本机扫描已经累计读取十余 GiB，直接扩大默认范围会使耗时进一步增加。选择扩展检查时明确提示较慢。
+- 验证：`remediation-tests` 累计 23 项通过，本任务新增 4 项，含 System32 模拟目录里的无害自定义指纹命中及预算耗尽记录。
