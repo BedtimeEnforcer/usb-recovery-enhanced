@@ -92,7 +92,7 @@ try {
         if ($guideText.Contains('【制作人】')) { break }
         Start-Sleep -Milliseconds 100
     } while ((Get-Date) -lt $guideDeadline)
-    foreach ($required in @('【病毒简介】','劫持剪贴板','【使用步骤】','清理完成后重启电脑','【制作人】','李晓达——因机务段带毒电脑过多，U 盘反复感染，实在受不了了而开发本工具。')) {
+    foreach ($required in @('【病毒简介】','剪贴板地址替换','更换密码','新助记词','【使用步骤】','清理完成后重启电脑','【制作人】','李晓达——因机务段带毒电脑过多，U 盘反复感染，实在受不了了而开发本工具。')) {
         if (-not $guideText.Contains($required)) { throw "Missing original guide content: $required" }
     }
     if ($guideText.Contains('【加强版】')) { throw 'Startup guide still uses enhanced technical introduction' }

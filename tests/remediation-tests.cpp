@@ -1,5 +1,6 @@
 #include "enhanced_engine.hpp"
 #include "ui_results.hpp"
+#include "ui_text.hpp"
 #include <iostream>
 using namespace usb;namespace e=enhanced;
 static int passed=0;
@@ -139,6 +140,9 @@ int wmain(int argc,wchar_t** argv){try{
     auto revivalResult=cleanReport(revivalLog);
     check(revival && revivalResult.warning && revivalResult.content.find(L"重启后复查")!=S::npos,"P1-6 file and process revival snapshot produces warning and reboot rescan steps");
     check(!e::postCleanReview({{high,L"",L"",true,false}},{},log,[](const S&){return false;}),"P1-6 absent file and process do not invent a revival");
+    const auto guide=usageGuideText();
+    check(guide.find(L"地址替换")!=S::npos && guide.find(L"更换密码")!=S::npos && guide.find(L"新助记词")!=S::npos,"P1-7 guide describes clipboard replacement and password or seed replacement");
+    check(guide.find(S(L"上传钱包")+L"密钥")==S::npos && guide.find(L"李晓达")!=S::npos,"P1-7 guide removes unsupported exfiltration claim while retaining creator");
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}

@@ -1,5 +1,6 @@
 #include "engine.hpp"
 #include "ui_results.hpp"
+#include "ui_text.hpp"
 #include <commctrl.h>
 #include <commdlg.h>
 #include <memory>
@@ -349,7 +350,7 @@ void showCleanResult(const std::vector<S>& collected)
 // 启动后主动弹出的使用说明：病毒简介、使用步骤、制作人三节，信息点一个不能少。
 void showGuide()
 {
-    S text = L"【病毒简介】\r\n· 感染途径：点击带毒 U 盘里的伪装快捷方式，即会中招。\r\n· 易感机制：病毒把文件藏进 U+FFFF 字符隐藏目录，并放置与 U 盘卷标同名的诱饵快捷方式，劫持 shell32 图标伪装成文件夹。\r\n· 危害与行为：隐藏文件，并随 U 盘交叉感染其他电脑；联网后会劫持剪贴板，上传钱包密钥等敏感信息。\r\n\r\n【使用步骤】\r\n· 第一步：先点“杀毒”完成电脑查杀（选择“只检查电脑”→ 检查 → 杀毒）。\r\n· 确认电脑无毒后，再查杀 U 盘；否则 U 盘杀完后，会被电脑里残留的病毒立刻再次感染。\r\n· 然后恢复 U 盘隐藏文件。\r\n· 清理完成后重启电脑，再次检查确认。\r\n\r\n【制作人】\r\n李晓达——因机务段带毒电脑过多，U 盘反复感染，实在受不了了而开发本工具。";
+    S text = usageGuideText();
     msgBox(L"使用说明", L"使用前请先读一遍", text, TDCBF_OK_BUTTON, TD_INFORMATION_ICON);
 }
 void startClean(const std::vector<Finding>& confirmed);  // 前向声明
