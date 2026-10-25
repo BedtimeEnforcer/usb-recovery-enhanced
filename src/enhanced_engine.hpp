@@ -34,51 +34,8 @@ inline S decodeText(const std::vector<BYTE>& b) {
     return s;
 }
 
-struct LinkData { S target, relative, work, args; };
-inline LinkData parseLink(const std::vector<BYTE>& b) {
-    LinkData r;
-    const BYTE clsid[]={1,20,2,0,0,0,0,0,192,0,0,0,0,0,0,70};
-    if (b.size()<76 || field(b,0,4)!=76 || memcmp(b.data()+4,clsid,16)) return r;
-    auto flags=field(b,20,4); size_t pos=76;
-    if (flags&1) { auto n=field(b,pos,2); pos+=2; if (n>b.size()-pos) throw Error{L"快捷方式 IDList 越界"}; pos+=n; }
-    if (flags&2) {
-        const size_t start=pos, n=field(b,pos,4);
-        if (n<28 || pos>b.size() || n>b.size()-pos) throw Error{L"快捷方式 LinkInfo 越界"};
-        const size_t header=field(b,start+4,4);
-        if (header<28 || header>n || (header>28 && header<36)) throw Error{L"快捷方式 LinkInfo 头异常"};
-        auto readPath=[&](size_t offset, bool wide) -> S {
-            if (!offset) return L"";
-            if (offset<header || offset>=n) throw Error{L"快捷方式路径偏移异常"};
-            size_t p=start+offset, end=start+n; S text;
-            if (wide) {
-                while (p+1<end) { auto c=field(b,p,2); if (!c) return text; text+=wchar_t(c); p+=2; }
-            } else {
-                size_t begin=p; while(p<end && b[p]) ++p;
-                if (p<end) { int len=MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+begin),int(p-begin),nullptr,0); text.resize(len); if(len) MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+begin),int(p-begin),&text[0],len); return text; }
-            }
-            throw Error{L"快捷方式路径缺少终止符"};
-        };
-        // 只静态读取本地目标，不解析 IDList 或联系网络共享。
-        if (field(b,start+8,4)&1) {
-            size_t u=header>=36 ? field(b,start+28,4) : 0;
-            r.target=readPath(u ? u : field(b,start+16,4),u!=0);
-        }
-        pos+=n;
-    }
-    for (auto bit : {4,8,16,32,64}) if (flags&bit) {
-        size_t count=field(b,pos,2); pos+=2;
-        size_t len=count*((flags&128)?2:1);
-        if (pos>b.size() || len>b.size()-pos) throw Error{L"快捷方式 StringData 越界"};
-        S text;
-        if(flags&128) { for(size_t i=0;i<count;++i) text+=wchar_t(field(b,pos+i*2,2)); }
-        else { int n=MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+pos),int(count),nullptr,0); text.resize(n); if(n) MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+pos),int(count),&text[0],n); }
-        pos+=len;
-        if(bit==8) r.relative=text;
-        if(bit==16) r.work=text;
-        if(bit==32) r.args=text;
-    }
-    return r;
-}
+using LinkData=StaticLink;
+inline LinkData parseLink(const std::vector<BYTE>& b){return parseStaticLink(b);}
 inline S linkHint(const LinkData& link) {
     const S cmd=lower(link.target+L" "+link.relative+L" "+link.args);
     if (has(cmd,L".trashes\\") && (has(cmd,L".js") || has(cmd,L".jse")))
@@ -168,12 +125,13 @@ public:
                 }
             } else ++oversized;
             ReviewKind kind=ReviewKind::None;
-            if(residualName(p))kind=ReviewKind::ResidualName;
+            if(extension(p,L".lnk") && n<=1048576 && variantWormLink(p))kind=ReviewKind::LinkVariant;
+            else if(residualName(p))kind=ReviewKind::ResidualName;
             else if(numericExe(p))for(const auto& temp:tempRoots)if(underPath(p,temp)){kind=ReviewKind::NumericTemp;break;}
             if(kind!=ReviewKind::None) {
                 WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(p).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
-                S why=kind==ReviewKind::ResidualName?L"残留文件名匹配；仅名称不能确认病毒，需逐项人工确认":L"Temp 纯数字 EXE，需甄别；未知哈希不自动隔离";
-                out.push_back({p,digest,why,false,false,kind,n,info.ftCreationTime});return;
+                S why=kind==ReviewKind::LinkVariant?L"高可疑：cmd 目标与 U+FFFF/DrvMgr 命令变体；需逐项确认后隔离":(kind==ReviewKind::ResidualName?L"残留文件名匹配；仅名称不能确认病毒，需逐项人工确认":L"Temp 纯数字 EXE，需甄别；未知哈希不自动隔离");
+                out.push_back({p,digest,why,false,extension(p,L".lnk"),kind,n,info.ftCreationTime});return;
             }
             // 自身携带静态规则文本；相同字节的自身副本不作为内容线索。
             if(!selfDigest.empty() && digest==selfDigest)return;
@@ -345,7 +303,9 @@ inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& a
 }
 inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log) {
     if(!consent){log(L"用户保留核查文件："+f.path);return false;}
-    if(f.review!=ReviewKind::ResidualName || !residualName(f.path))throw Error{L"该线索不在可人工确认隔离范围"};
+    bool allowed=(f.review==ReviewKind::ResidualName && residualName(f.path)) ||
+        (f.review==ReviewKind::LinkVariant && extension(f.path,L".lnk") && size(f.path)<=1048576 && variantWormLink(f.path));
+    if(!allowed)throw Error{L"该线索不在可人工确认隔离范围"};
     noLinks(f.path);
     if(f.digest.empty() || size(f.path)>HASH_LIMIT || size(f.path)!=f.fileSize || hash(f.path)!=f.digest)throw Error{L"核查文件已变化或无法复核，请重新检查"};
     WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(f.path).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");

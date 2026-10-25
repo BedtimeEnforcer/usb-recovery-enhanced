@@ -36,3 +36,11 @@
 - `canDeleteEmptyContainer/deleteEmptyContainer`：仅允许当前卷的根目录 U+FFFF 空容器，单独确认并再次检查；通过目录句柄的 FileDispositionInfo 删除，Windows 在出现子项时原子拒绝。没有递归删除，也没有 RemoveDirectory 调用。
 - `main.cpp::offerDeleteEmpty`：仅空容器显示“删除空的 U+FFFF 文件夹”确认按钮；结果保留“恢复成功不等于清毒”。
 - 验证：`remediation-tests` 累计 35 项通过，本任务新增 12 项，含未处理项门禁、嵌套属性、无确认不删、新出现用户文件拒绝删、空容器删除、嵌套程序拒绝恢复。
+
+## 任务 5：cmd 目标与变体诱饵快捷方式
+
+- `engine.hpp::parseStaticLink/commandTarget/wormLink/variantWormLink`：静态读取 LinkInfo、StringData 和有界环境变量目标块；原版确认要求 cmd.exe/%comspec% 目标和原始精确参数。带附加参数、盘符等变体仅列为高可疑。
+- `enhanced_engine.hpp::Scanner::inspect/quarantineReviewed`：快捷方式变体逐项确认后，重新验证目标、命令模式、大小、创建时间及哈希，才允许备份隔离；原 cleanOne 规则复核不放宽。
+- `main.cpp::doReview`：允许逐项核查此类快捷方式。
+- 更新旧测试的无害快捷方式构造器，增加真实目标字段，以适配新增目标检查；没有移除原测试用例。
+- 验证：新增原版/变体/盘符前缀/非 cmd/普通快捷方式及人工确认隔离测试，`remediation-tests` 累计 41 项通过。

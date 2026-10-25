@@ -58,7 +58,81 @@ inline bool extension(const S&p,const S&ext){auto n=lower(p);return n.size()>=ex
 inline std::vector<BYTE> bytes(const S&p){noLinks(p);auto n=size(p);if(n>1048576)throw Error{L"文件过大，拒绝解析快捷方式"};Handle h(CreateFileW(xp(p).c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr));if(h.h==INVALID_HANDLE_VALUE)fail(L"读取快捷方式");std::vector<BYTE>b((size_t)n);DWORD read;if(!ReadFile(h.h,b.data(),(DWORD)n,&read,nullptr)||read!=n)fail(L"读取快捷方式内容");return b;}
 inline uint32_t field(const std::vector<BYTE>&b,size_t p,size_t n){if(p>b.size()||n>b.size()-p)throw Error{L"快捷方式结构截断"};uint32_t v=0;for(size_t i=0;i<n;i++)v|=uint32_t(b[p+i])<<(8*i);return v;}
 inline S arguments(const S&p){auto b=bytes(p);if(b.size()<76||field(b,0,4)!=76)return L"";const BYTE id[]={1,20,2,0,0,0,0,0,192,0,0,0,0,0,0,70};if(memcmp(b.data()+4,id,16))return L"";auto f=field(b,20,4);size_t pos=76;if(f&1)pos+=2+field(b,pos,2);if(f&2){auto n=field(b,pos,4);if(n<4||n>b.size())throw Error{L"快捷方式结构异常"};pos+=n;}for(auto bit:{4,8,16,32,64})if(f&bit){auto n=field(b,pos,2);pos+=2;size_t len=n*((f&128)?2:1);if(pos>b.size()||len>b.size()-pos)throw Error{L"快捷方式字符串越界"};S s;if(f&128){for(size_t i=0;i<n;i++)s+=(wchar_t)field(b,pos+i*2,2);}else{int len2=MultiByteToWideChar(CP_ACP,0,(char*)b.data()+pos,n,nullptr,0);s.resize(len2);if(len2)MultiByteToWideChar(CP_ACP,0,(char*)b.data()+pos,n,&s[0],len2);}pos+=len;if(bit==32)return s;}return L"";}
-inline bool wormLink(const S&p){S s=lower(arguments(p)),normalized;bool space=false;for(wchar_t c:s){if(iswspace(c)){space=true;continue;}if(space&&!normalized.empty())normalized+=L' ';space=false;normalized+=c;}return normalized==L"/c start \uffff & start \uffff\\drvmgr.exe";}
+struct StaticLink { S target, relative, work, args; };
+inline StaticLink parseStaticLink(const std::vector<BYTE>& b) {
+    StaticLink r;
+    const BYTE clsid[]={1,20,2,0,0,0,0,0,192,0,0,0,0,0,0,70};
+    if (b.size()<76 || field(b,0,4)!=76 || memcmp(b.data()+4,clsid,16)) return r;
+    auto flags=field(b,20,4); size_t pos=76;
+    if (flags&1) { auto n=field(b,pos,2); pos+=2; if (n>b.size()-pos) throw Error{L"快捷方式 IDList 越界"}; pos+=n; }
+    if (flags&2) {
+        const size_t start=pos, n=field(b,pos,4);
+        if (n<28 || pos>b.size() || n>b.size()-pos) throw Error{L"快捷方式 LinkInfo 越界"};
+        const size_t header=field(b,start+4,4);
+        if (header<28 || header>n || (header>28 && header<36)) throw Error{L"快捷方式 LinkInfo 头异常"};
+        auto readPath=[&](size_t offset, bool wide) -> S {
+            if (!offset) return L"";
+            if (offset<header || offset>=n) throw Error{L"快捷方式路径偏移异常"};
+            size_t p=start+offset, end=start+n; S text;
+            if (wide) {
+                while (p+1<end) { auto c=field(b,p,2); if (!c) return text; text+=wchar_t(c); p+=2; }
+            } else {
+                size_t begin=p; while(p<end && b[p]) ++p;
+                if (p<end) { int len=MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+begin),int(p-begin),nullptr,0); text.resize(len); if(len) MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+begin),int(p-begin),&text[0],len); return text; }
+            }
+            throw Error{L"快捷方式路径缺少终止符"};
+        };
+        // 只静态读取本地目标，不解析 IDList 或联系网络共享。
+        if (field(b,start+8,4)&1) {
+            size_t u=header>=36 ? field(b,start+28,4) : 0;
+            r.target=readPath(u ? u : field(b,start+16,4),u!=0);
+        }
+        pos+=n;
+    }
+    for (auto bit : {4,8,16,32,64}) if (flags&bit) {
+        size_t count=field(b,pos,2); pos+=2;
+        size_t len=count*((flags&128)?2:1);
+        if (pos>b.size() || len>b.size()-pos) throw Error{L"快捷方式 StringData 越界"};
+        S text;
+        if(flags&128) { for(size_t i=0;i<count;++i) text+=wchar_t(field(b,pos+i*2,2)); }
+        else { int n=MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+pos),int(count),nullptr,0); text.resize(n); if(n) MultiByteToWideChar(CP_ACP,0,reinterpret_cast<const char*>(b.data()+pos),int(count),&text[0],n); }
+        pos+=len;
+        if(bit==8) r.relative=text;
+        if(bit==16) r.work=text;
+        if(bit==32) r.args=text;
+    }
+    while(pos+4<=b.size()) {
+        size_t block=field(b,pos,4);if(!block)break;
+        if(block<8 || block>b.size()-pos)throw Error{L"快捷方式 ExtraData 越界"};
+        if(field(b,pos+4,4)==0xA0000001 && block>=788 && r.target.empty()) {
+            S value;for(size_t i=0;i<260;++i){auto c=field(b,pos+268+i*2,2);if(!c)break;value+=wchar_t(c);}
+            if(value.empty())for(size_t i=0;i<260 && b[pos+8+i];++i)value+=wchar_t(b[pos+8+i]);
+            r.target=value;
+        }
+        pos+=block;
+    }
+    return r;
+}
+inline S normalizedArguments(const S& input) {
+    S normalized;bool space=false;
+    for(wchar_t c:lower(input)){if(iswspace(c)){space=true;continue;}if(space&&!normalized.empty())normalized+=L' ';space=false;normalized+=c;}
+    return normalized;
+}
+inline bool commandTarget(const StaticLink& link) {
+    S target=lower(link.target.empty()?link.relative:link.target);
+    if(target.size()>1 && target.front()==L'"' && target.back()==L'"')target=target.substr(1,target.size()-2);
+    return target==L"%comspec%" || name(target)==L"cmd.exe";
+}
+inline bool wormLink(const S& p) {
+    auto link=parseStaticLink(bytes(p));
+    return commandTarget(link) && normalizedArguments(link.args)==L"/c start \uffff & start \uffff\\drvmgr.exe";
+}
+inline bool variantWormLink(const S& p) {
+    auto link=parseStaticLink(bytes(p));if(!commandTarget(link))return false;
+    S args=normalizedArguments(link.args);if(args==L"/c start \uffff & start \uffff\\drvmgr.exe")return false;
+    args.erase(std::remove(args.begin(),args.end(),L'"'),args.end());
+    return args.find(L"\uffff\\drvmgr.exe")!=S::npos;
+}
 struct NativeFs { PVOID old=nullptr; bool changed=false; NativeFs(){BOOL wow=FALSE;if(IsWow64Process(GetCurrentProcess(),&wow)&&wow){if(!Wow64DisableWow64FsRedirection(&old))fail(L"无法访问原生系统目录");changed=true;}}~NativeFs(){if(changed)Wow64RevertWow64FsRedirection(old);} };
 enum class ReviewKind { None, ResidualName, NumericTemp, HighRiskName, LinkVariant };
 struct Finding{S path,digest,reason;bool confirmed,link; ReviewKind review=ReviewKind::None; uint64_t fileSize=0; FILETIME created{};};

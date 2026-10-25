@@ -13,6 +13,12 @@ struct TestRegistry {
     void dword(const S& name,DWORD value){if(RegSetValueExW(h,name.c_str(),0,REG_DWORD,(BYTE*)&value,sizeof(value))!=ERROR_SUCCESS)throw Error{L"fixture dword"};}
     void string(const S& name,const S& value){if(RegSetValueExW(h,name.c_str(),0,REG_SZ,(const BYTE*)value.c_str(),DWORD((value.size()+1)*2))!=ERROR_SUCCESS)throw Error{L"fixture string"};}
 };
+static void shortcut(const S& path,const S& target,const S& args) {
+    std::vector<BYTE> b(80+(target.size()+args.size())*2);b[0]=76;
+    BYTE clsid[]={1,20,2,0,0,0,0,0,192,0,0,0,0,0,0,70};memcpy(b.data()+4,clsid,16);b[20]=168;
+    size_t pos=76;auto append=[&](const S& value){b[pos++]=BYTE(value.size());b[pos++]=BYTE(value.size()>>8);memcpy(b.data()+pos,value.data(),value.size()*2);pos+=value.size()*2;};append(target);append(args);
+    Handle h(CreateFileW(xp(path).c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,0,nullptr));if(h.h==INVALID_HANDLE_VALUE)fail(L"shortcut fixture");write(h.h,b.data(),DWORD(b.size()));
+}
 int wmain(int argc,wchar_t** argv){try{
     if(argc!=2)return 2;
     S root=full(argv[1]);mkdir(root);S temp=join(root,L"temp");mkdir(temp);
@@ -99,6 +105,23 @@ int wmain(int argc,wchar_t** argv){try{
     check(!exists(emptyContainer),"P0-4 disposition removes only verified empty container");
     S unsafe=join(container,L"nested");mkdir(unsafe);textFile(join(unsafe,L"harmless.exe"),L"inert");
     rejects([&]{e::plan(disk,container,true);},"P0-4 nested executable still rejects directory recovery");
+    S originalLink=join(root,L"original.lnk"),variantLink=join(root,L"variant.lnk"),normalTarget=join(root,L"normal-target.lnk"),plain=join(root,L"plain.lnk");
+    const S originalArgs=L"/c start \uffff & start \uffff\\DrvMgr.exe";
+    shortcut(originalLink,L"%comspec%",originalArgs);
+    shortcut(variantLink,L"C:\\Windows\\System32\\cmd.exe",originalArgs+L" /extra");
+    shortcut(normalTarget,L"C:\\Program Files\\Normal\\normal.exe",originalArgs);
+    shortcut(plain,L"C:\\Windows\\notepad.exe",L"document.txt");
+    check(wormLink(originalLink) && !variantWormLink(originalLink),"P1-5 original lure requires cmd or comspec target and remains confirmed");
+    std::vector<Finding> variants;scanner.inspect(variantLink,variants,log);
+    check(variants.size()==1 && !variants[0].confirmed && variants[0].review==ReviewKind::LinkVariant,"P1-5 appended-argument lure becomes high suspicious review candidate");
+    check(!wormLink(normalTarget) && !variantWormLink(normalTarget) && !wormLink(plain) && !variantWormLink(plain),"P1-5 non-cmd and ordinary shortcuts are not lure matches");
+    S driveVariant=join(root,L"drive-variant.lnk");shortcut(driveVariant,L"cmd.exe",L"/c start E:\\uffff & start E:\\uffff\\DrvMgr.exe /x");
+    // Explicit U+FFFF rather than the literal letters in the drive-prefix fixture.
+    S driveArgs=L"/c start E:\\"+S(1,wchar_t(0xffff))+L" & start E:\\"+S(1,wchar_t(0xffff))+L"\\DrvMgr.exe /x";
+    S realDriveVariant=join(root,L"drive-prefix.lnk");shortcut(realDriveVariant,L"cmd.exe",driveArgs);
+    check(variantWormLink(realDriveVariant) && !wormLink(realDriveVariant),"P1-5 drive-prefixed lure is review-only");
+    {Journal j(join(root,L"variant-journals"));check(!e::quarantineReviewed(variants[0],false,j,log) && exists(variantLink),"P1-5 variant shortcut retained without consent");
+        check(e::quarantineReviewed(variants[0],true,j,log) && !exists(variantLink),"P1-5 explicit reviewed shortcut quarantine succeeds without weakening cleanOne");}
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}

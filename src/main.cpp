@@ -443,8 +443,8 @@ void doReview() {
     if(choice==201) {
         std::vector<Finding> approved;
         for(const auto& f:findings)if(!f.confirmed) {
-            bool eligible=f.review==ReviewKind::ResidualName && !f.digest.empty();
-            const S body=enhanced::reviewFileText(f)+(eligible?L"\r\n\r\n仅按名称匹配，不能确定是病毒。确认属于异常残留后，是否备份隔离此文件？":L"\r\n\r\n此项仅供甄别，不会自动隔离，请用完整杀毒软件复核。");
+            bool eligible=(f.review==ReviewKind::ResidualName || f.review==ReviewKind::LinkVariant) && !f.digest.empty();
+            const S body=enhanced::reviewFileText(f)+(eligible?L"\r\n\r\n此项为待确认线索，尚不能确诊。确认属于异常文件后，是否备份隔离此文件？":L"\r\n\r\n此项仅供甄别，不会自动隔离，请用完整杀毒软件复核。");
             if(msgBox(L"逐项人工核查",eligible?L"是否隔离此残留候选？":L"需甄别文件",body,eligible?(TDCBF_YES_BUTTON|TDCBF_NO_BUTTON):TDCBF_OK_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(f);
         }
         if(approved.empty())return;
