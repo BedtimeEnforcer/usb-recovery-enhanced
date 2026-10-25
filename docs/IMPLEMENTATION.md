@@ -82,7 +82,7 @@
 
 | 约束 | 状态 | 代码与测试证据 |
 |---|---|---|
-| 1. 非空 U+FFFF 不得删除 | 已遵守 | [src/enhanced_engine.hpp:456](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L456)；P0-4 新用户文件出现拒绝删除测试；未使用递归删除调用 |
+| 1. 非空 U+FFFF 不得删除 | 已遵守（数据保护；顺序冲突按任务 4 处理） | [src/enhanced_engine.hpp:456](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L456)；P0-4 新用户文件出现拒绝删除测试；未使用递归删除调用 |
 | 2. 自动隔离只接受登记大小 + SHA-256 或原版精确 cmd 诱饵 | 已遵守 | [src/enhanced_engine.hpp:333](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L333)、[src/enhanced_rules.hpp:38](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_rules.hpp#L38)；伪造 confirmed 和缺少登记大小的回归测试 |
 | 3. 恢复跳过顶层程序、拒绝嵌套可疑入口、重名保留及过期拒绝 | 已遵守 | [src/enhanced_engine.hpp:413](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/enhanced_engine.hpp#L413)；原有恢复回归用例 + P0-4 嵌套拒绝测试 |
 | 4. 备份失败不继续删，删除失败恢复原属性 | 已遵守 | [src/engine.hpp:147](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/blob/main/src/engine.hpp#L147)；该函数与审读基线逐字一致；原有备份校验/源文件保留测试；新增注册表备份写失败保留原值测试 |
@@ -95,3 +95,9 @@
 **尚未进行加强版虚拟机真实感染验收。** 没有验证真实变种、看门狗持续复活、内存注入、全部计划任务/服务或网络侧清理。不能据此宣称已经完整清除 Phorpiex/Twizt 或全部残留。
 
 任务书中的冲突按全局硬性约束执行：仅 dat 文件名匹配不当作确诊；只有逐项人工同意并重新校验后才处理候选。配套静态分析报告未提供，未声称对其未提供的内容进行了独立复核。
+
+## 任务书顺序冲突的执行解释
+
+全局条款 1 写了先恢复用户文件、再删病毒；任务 4 同时要求未隔离已确认项时拦截恢复。这两个字面顺序相互冲突。本次采用任务 4 的强制门禁：**先结束精确匹配进程并校验备份隔离确认项，再恢复用户文件，最后仅在再次校验为空并单独确认后删除空容器**。
+
+这一解释保持“不删除非空 U+FFFF 容器”和“防止传播源未处理时恢复”的共同数据保护目的；没有把两个互斥顺序说成同时满足。
