@@ -1,5 +1,6 @@
 #pragma once
 #include "enhanced_rules.hpp"
+#include "review_registry.hpp"
 
 namespace enhanced {
 using namespace usb;
@@ -129,11 +130,28 @@ inline bool frozenHint(const std::vector<BYTE>& b) {
     return true;
 }
 
+inline bool underPath(const S& path,const S& root) {
+    S p=lower(full(path)),r=lower(full(root));return p==r || p.rfind(r+(r.back()==92?S():S(1,wchar_t(92))),0)==0;
+}
+inline bool residualName(const S& p) {auto n=lower(name(p));return n==L"tbtnds.dat" || n==L"tbtcmds.dat";}
+inline bool numericExe(const S& p) {
+    S n=lower(name(p));if(n.size()<=4 || !extension(n,L".exe"))return false;
+    for(size_t i=0;i<n.size()-4;++i)if(n[i]<L'0'||n[i]>L'9')return false;
+    return true;
+}
+inline S fileTimeText(FILETIME time) {
+    SYSTEMTIME utc{},local{};if(!FileTimeToSystemTime(&time,&utc) || !SystemTimeToTzSpecificLocalTime(nullptr,&utc,&local))return L"未知";
+    wchar_t b[64];swprintf(b,64,L"%04u-%02u-%02u %02u:%02u:%02u",local.wYear,local.wMonth,local.wDay,local.wHour,local.wMinute,local.wSecond);return b;
+}
+inline S reviewFileText(const Finding& f) {
+    return L"路径："+f.path+L"\r\n大小："+num(f.fileSize)+L" 字节\r\nSHA-256："+(f.digest.empty()?L"未计算（超过上限或读取失败）":f.digest)+L"\r\n创建时间："+fileTimeText(f.created)+L"\r\n判断依据："+f.reason;
+}
 class Scanner {
     const std::vector<HashRule>& table;
 public:
     size_t oversized=0, contentSkipped=0;
     S selfDigest;
+    std::vector<S> tempRoots;
     explicit Scanner(const std::vector<HashRule>& catalog=rules()) : table(catalog) {}
     void inspect(const S& p, std::vector<Finding>& out, Log log) {
         try {
@@ -149,6 +167,14 @@ public:
                     return;
                 }
             } else ++oversized;
+            ReviewKind kind=ReviewKind::None;
+            if(residualName(p))kind=ReviewKind::ResidualName;
+            else if(numericExe(p))for(const auto& temp:tempRoots)if(underPath(p,temp)){kind=ReviewKind::NumericTemp;break;}
+            if(kind!=ReviewKind::None) {
+                WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(p).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
+                S why=kind==ReviewKind::ResidualName?L"残留文件名匹配；仅名称不能确认病毒，需逐项人工确认":L"Temp 纯数字 EXE，需甄别；未知哈希不自动隔离";
+                out.push_back({p,digest,why,false,false,kind,n,info.ftCreationTime});return;
+            }
             // 自身携带静态规则文本；相同字节的自身副本不作为内容线索。
             if(!selfDigest.empty() && digest==selfDigest)return;
             S reason;
@@ -221,6 +247,7 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
     auto inspect=[&](const S& p){if(!localAbsolute(p))return; if(seen.insert(lower(full(p))).second){report(p);scanner.inspect(p,out,log);++checked;report(p);}};
     log(L"加强版规则 "+S(RULE_VERSION)+L"：15 条精确指纹 + 原版 LNK + 7 类组合线索；新增家族未做真实感染测试。");
     wchar_t windows[MAX_PATH],temp[MAX_PATH]; GetWindowsDirectoryW(windows,MAX_PATH); GetTempPathW(MAX_PATH,temp);
+    scanner.tempRoots.push_back(temp);
     std::vector<S> top{windows}, recursive{temp}, excluded;
     for(int id:{CSIDL_PROFILE,CSIDL_APPDATA,CSIDL_LOCAL_APPDATA,CSIDL_STARTUP,CSIDL_COMMON_STARTUP,CSIDL_COMMON_APPDATA,CSIDL_COMMON_DOCUMENTS}) {
         try {
@@ -286,6 +313,16 @@ inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& a
         quarantine(f.path,f.digest,j);
         log(L"已隔离："+f.path);
     } catch(const Error& e){j.add(L"清理失败",f.path,L"",e.text);log(L"清理失败："+f.path+L" — "+e.text);}
+}
+inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log) {
+    if(!consent){log(L"用户保留核查文件："+f.path);return false;}
+    if(f.review!=ReviewKind::ResidualName || !residualName(f.path))throw Error{L"该线索不在可人工确认隔离范围"};
+    noLinks(f.path);
+    if(f.digest.empty() || size(f.path)>HASH_LIMIT || size(f.path)!=f.fileSize || hash(f.path)!=f.digest)throw Error{L"核查文件已变化或无法复核，请重新检查"};
+    WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(f.path).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
+    if(CompareFileTime(&info.ftCreationTime,&f.created)!=0)throw Error{L"核查文件已替换，请重新检查"};
+    j.add(L"用户逐项确认隔离",f.path,L"",f.reason);
+    quarantine(f.path,f.digest,j);log(L"已隔离："+f.path);return true;
 }
 inline void clean(const std::vector<Finding>& items, Log log) {
     NativeFs native; Journal j(data()); log(L"隔离与记录目录："+j.dir);

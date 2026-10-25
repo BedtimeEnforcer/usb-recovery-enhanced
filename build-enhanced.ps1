@@ -27,7 +27,7 @@ try {
     Copy-Item -LiteralPath 'UsbRecoveryEnhanced.exe' -Destination (Join-Path $out 'U盘修复助手-加强版.exe') -Force
     & "$bin\objdump.exe" -p UsbRecoveryEnhanced.exe | Out-File -LiteralPath (Join-Path $out 'pe-imports.txt') -Encoding utf8
     if ($Tests) {
-        foreach ($test in @('tests','report-tests','enhanced-tests','ui-progress-tests')) {
+        foreach ($test in @('tests','report-tests','enhanced-tests','remediation-tests','ui-progress-tests')) {
             $entryFlags = @()
             if ($test -ne 'report-tests') { $entryFlags = @('-municode') }
             $uiFlags = @()

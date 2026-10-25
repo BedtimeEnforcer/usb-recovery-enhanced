@@ -3,10 +3,17 @@
 
 namespace usb {
 struct UiReport {
-    S headline, content;
+    S headline, content, details;
     bool warning = false, anyIsolated = false;
 };
 
+inline S aftercareChecklist() {
+    return L"【重启与复活复查】\r\n保存文件后重启，再检查电脑和所选 U 盘；核对病毒进程是否重新出现、已隔离文件是否重现。若重现，保留日志并使用更新的完整杀毒软件复查驻留。\r\n\r\n"
+           L"【网络善后（手动）】\r\n1. 检查路由器 UPnP 端口映射表，核实后删除陌生映射。\r\n2. 若感染期间联网，在网关/防火墙连接记录中核查 45.141.233.6、94.26.90.235。P2P 节点无法靠封禁少数 IP 完整覆盖，封 IP 只是辅助。本工具不自动改路由器或防火墙。\r\n\r\n"
+           L"【剪贴板与账户核对】\r\n感染期间如有加密货币转账，逐笔核对收款地址是否被剪贴板地址替换。感染期间输入过的密码、助记词应视为可能泄露：在干净设备更换密码，创建新钱包/新助记词并安全迁移资产，不再使用旧助记词。\r\n\r\n"
+           L"【隔离区】\r\n%LOCALAPPDATA%\\UsbRecovery 内的 .quarantine 是明文备份，并未加密。不要运行或公开分发，妥善保管并交由安全软件处理。\r\n\r\n"
+           L"尚未进行加强版虚拟机真实感染验收。未命中不代表整机无毒；恢复成功不等于清毒。";
+}
 inline bool scanNotice(const S& line) {
     // 仅排除已知的正常进度；保留原样转发的目录访问异常，避免遗漏。
     if (line.empty() || line.rfind(L"检查电脑进程映像、", 0) == 0 ||
@@ -61,6 +68,7 @@ inline UiReport cleanReport(const std::vector<S>& collected) {
             failed.push_back(rest.substr(0, rest.find(L" — ")));
         }
     }
+    r.details = aftercareChecklist();
     r.anyIsolated = isolated > 0;
     r.warning = startupFailed || review || !failed.empty() || !isolated;
     r.headline = isolated ? L"已隔离 " + num(isolated) + L" 项" : L"本次未能清除病毒";

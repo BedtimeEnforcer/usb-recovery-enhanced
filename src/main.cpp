@@ -7,6 +7,7 @@ using namespace usb;
 #ifdef USB_ENHANCED
 #include "enhanced_engine.hpp"
 namespace app = enhanced;
+static std::vector<RegistrySnapshot> policyFindings;
 static const wchar_t* const APP_TITLE = L"U 盘修复助手 · 加强版";
 #else
 namespace app = usb;
@@ -44,7 +45,7 @@ bool busy = false;
 std::vector<S> roots, folders;
 std::vector<Finding> findings;
 Plan pending;
-enum { ID_SCAN = 101, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_ABOUT, ID_DRIVE, ID_FOLDER, ID_RULES, ID_LOG_TOGGLE };
+enum { ID_SCAN = 101, ID_CLEAN, ID_RESTORE, ID_REFRESH, ID_SAVE, ID_ABOUT, ID_DRIVE, ID_FOLDER, ID_RULES, ID_LOG_TOGGLE, ID_REVIEW = 113 };
 static SRWLOCK scanLock = SRWLOCK_INIT;
 static S scanPath;
 static size_t scanChecked = 0;
@@ -188,7 +189,7 @@ static void paintAll(HDC dc, const RECT& client)
 
 // 统一消息框：用 TaskDialog 排版（标题栏 + 粗体主指令 + 正文 + 图标 + 按钮），比 MessageBox 更整洁、层次分明。
 // 老系统不支持 TaskDialog 时自动回退到 MessageBox。
-static int msgBox(const S& title, const S& main, const S& content, TASKDIALOG_COMMON_BUTTON_FLAGS buttons = TDCBF_OK_BUTTON, PCWSTR icon = TD_INFORMATION_ICON)
+static int msgBox(const S& title, const S& main, const S& content, TASKDIALOG_COMMON_BUTTON_FLAGS buttons = TDCBF_OK_BUTTON, PCWSTR icon = TD_INFORMATION_ICON, const S& details = L"")
 {
     TASKDIALOGCONFIG cfg{};
     cfg.cbSize = sizeof(cfg);
@@ -199,6 +200,11 @@ static int msgBox(const S& title, const S& main, const S& content, TASKDIALOG_CO
     cfg.pszWindowTitle = title.c_str();
     cfg.pszMainInstruction = main.c_str();
     cfg.pszContent = content.c_str();
+    if(!details.empty()) {
+        cfg.pszExpandedInformation=details.c_str();
+        cfg.pszExpandedControlText=L"查看善后与复查清单";
+        cfg.pszCollapsedControlText=L"收起详细清单";
+    }
     cfg.pszMainIcon = icon;
     int btn = 0;
     if (FAILED(TaskDialogIndirect(&cfg, &btn, nullptr, nullptr)))
@@ -329,7 +335,7 @@ void showCleanResult(const std::vector<S>& collected)
 {
     const auto result = cleanReport(collected);
     msgBox(L"查杀结果", result.headline, result.content, TDCBF_OK_BUTTON,
-           result.warning ? TD_WARNING_ICON : TD_INFORMATION_ICON);
+           result.warning ? TD_WARNING_ICON : TD_INFORMATION_ICON, result.details);
     if (result.anyIsolated) {
         if (msgBox(L"需要重启", L"请先保存文件，再重启复查", L"请保存正在编辑的文件。重启后，再打开本软件检查。\r\n是否立即重启电脑？", TDCBF_YES_BUTTON | TDCBF_NO_BUTTON, TD_INFORMATION_ICON) == IDYES) {
             if (!rebootNow()) msgBox(L"需要重启", L"重启失败", L"请手动重启电脑，然后再次检查确认。", TDCBF_OK_BUTTON, TD_ERROR_ICON);
@@ -358,6 +364,10 @@ void doScan()
             if (scanNotice(s)) notices->push_back(s);
             logLine(s);
         }, scanProgress);
+#ifdef USB_ENHANCED
+        policyFindings = noDrivesPolicies([notices](const S& line){notices->push_back(line);logLine(line);});
+        for(const auto& policy:policyFindings)logLine(L"需人工确认策略 | "+registryLocation(policy)+L" | "+registryValueText(policy));
+#endif
         size_t yes = 0;
         for (auto& f : findings) { if (f.confirmed) yes++; logLine((f.confirmed ? L"已确认 | " : L"需核查 | ") + f.path + L" | " + f.reason); }
         logLine(L"确认命中 " + num(yes) + L" 项；需核查 " + num(findings.size() - yes) + L" 项。未命中不代表整机无毒。");
@@ -394,6 +404,47 @@ void startClean(const std::vector<Finding>& confirmed)
     }, [collected] { showCleanResult(*collected); });
 }
 
+#ifdef USB_ENHANCED
+static int reviewMenu() {
+    TASKDIALOG_BUTTON buttons[]={{201,L"逐项核查文件"},{202,L"核查 NoDrives 隐藏磁盘策略"},{204,L"查看善后与复查清单"}};
+    TASKDIALOGCONFIG cfg{};cfg.cbSize=sizeof(cfg);cfg.hwndParent=window;
+    cfg.pszWindowTitle=L"人工核查";cfg.pszMainInstruction=L"选择要核查的项目";
+    cfg.pszContent=L"只有逐项确认后才会备份处理；可疑线索不等于确诊病毒。";
+    cfg.dwFlags=TDF_USE_COMMAND_LINKS|TDF_POSITION_RELATIVE_TO_WINDOW;
+    cfg.dwCommonButtons=TDCBF_CANCEL_BUTTON;cfg.cButtons=sizeof(buttons)/sizeof(buttons[0]);cfg.pButtons=buttons;
+    int button=IDCANCEL;TaskDialogIndirect(&cfg,&button,nullptr,nullptr);return button;
+}
+void doReview() {
+    if(busy)return;
+    int choice=reviewMenu();
+    if(choice==204){msgBox(L"善后与复查",L"请逐项核对",aftercareChecklist());return;}
+    if(choice==201) {
+        std::vector<Finding> approved;
+        for(const auto& f:findings)if(!f.confirmed) {
+            bool eligible=f.review==ReviewKind::ResidualName && !f.digest.empty();
+            const S body=enhanced::reviewFileText(f)+(eligible?L"\r\n\r\n仅按名称匹配，不能确定是病毒。确认属于异常残留后，是否备份隔离此文件？":L"\r\n\r\n此项仅供甄别，不会自动隔离，请用完整杀毒软件复核。");
+            if(msgBox(L"逐项人工核查",eligible?L"是否隔离此残留候选？":L"需甄别文件",body,eligible?(TDCBF_YES_BUTTON|TDCBF_NO_BUTTON):TDCBF_OK_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(f);
+        }
+        if(approved.empty())return;
+        if(!admin()){msgBox(L"需要管理员权限",L"请以管理员身份运行",L"关闭程序，右键选择“以管理员身份运行”，重新检查后再确认。");return;}
+        auto logs=std::make_shared<std::vector<S>>();
+        run(L"正在处理人工确认文件……",[approved,logs]{
+            Journal j(data());
+            for(const auto& f:approved)try{enhanced::quarantineReviewed(f,true,j,[logs](const S& line){logs->push_back(line);logLine(line);});}
+            catch(const Error& e){S line=L"清理失败："+f.path+L" — "+e.text;logs->push_back(line);logLine(line);}
+        },[logs]{showCleanResult(*logs);});
+    } else if(choice==202) {
+        std::vector<RegistrySnapshot> approved;
+        for(const auto& policy:policyFindings) {
+            S body=registryLocation(policy)+L"\r\n"+registryValueText(policy)+L"\r\n\r\n若为用户或管理员自己设置的策略请保留。是否备份原值并删除此 NoDrives 值？";
+            if(msgBox(L"隐藏磁盘策略",L"此策略不一定由病毒设置",body,TDCBF_YES_BUTTON|TDCBF_NO_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(policy);
+        }
+        if(approved.empty()){msgBox(L"人工核查",L"未选择要删除的策略",L"请先检查；自己设置的策略应保留。");return;}
+        if(!admin()){msgBox(L"需要管理员权限",L"请以管理员身份运行",L"涉及系统策略，请重新以管理员身份检查并确认。");return;}
+        run(L"正在备份策略原值……",[approved]{Journal j(data());for(const auto& policy:approved)try{removeReviewedValue(policy,true,j,logLine);}catch(const Error& e){logLine(L"策略项清理失败："+registryLocation(policy)+L" — "+e.text);throw;}},[]{msgBox(L"人工核查结果",L"策略处理结束",L"所选策略已备份处理，请重新检查。此结果不代表整机已清毒。");});
+    }
+}
+#endif
 void doClean()
 {
     std::vector<Finding> confirmed;
@@ -541,6 +592,7 @@ void createChildren()
     ShowWindow(progressBox, SW_HIDE); ShowWindow(scanPathBox, SW_HIDE);
     statusBox = control(L"STATIC", L"就绪 · 检查不会修改被检查文件", 0, 0, 44, 700, 900, 24);
 #ifdef USB_ENHANCED
+    control(L"BUTTON",L"人工核查",BS_OWNERDRAW,ID_REVIEW,0,0,1,1);
     ShowWindow(logBox,SW_HIDE);
 #endif
 }
@@ -563,6 +615,7 @@ void layout()
     MoveWindow(driveBox,rcLbl1.left,PX(176),fieldWidth-PX(92),PX(240),TRUE);
     MoveWindow(GetDlgItem(window,ID_REFRESH),rcLbl1.left+fieldWidth-PX(82),PX(175),PX(82),PX(28),TRUE);
     MoveWindow(folderBox,rcLbl2.left,PX(176),fieldWidth,PX(240),TRUE);
+    MoveWindow(GetDlgItem(window,ID_REVIEW),W-M-PX(334),PX(29),PX(92),PX(32),TRUE);
     MoveWindow(GetDlgItem(window,ID_RULES),W-M-PX(232),PX(29),PX(150),PX(32),TRUE);
     MoveWindow(GetDlgItem(window,ID_ABOUT),W-M-PX(72),PX(29),PX(72),PX(32),TRUE);
     const int stepWidth=(W-2*M-PX(24))/3;
@@ -710,6 +763,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         case WM_COMMAND:
             if (LOWORD(w) == ID_ABOUT) { about(); return 0; }
 #ifdef USB_ENHANCED
+            if (LOWORD(w) == ID_REVIEW) { doReview(); return 0; }
             if (LOWORD(w) == ID_RULES) { showRules(); return 0; }
             if (LOWORD(w) == ID_LOG_TOGGLE) {
                 logExpanded=!logExpanded;
