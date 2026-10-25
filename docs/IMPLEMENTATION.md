@@ -44,3 +44,11 @@
 - `main.cpp::doReview`：允许逐项核查此类快捷方式。
 - 更新旧测试的无害快捷方式构造器，增加真实目标字段，以适配新增目标检查；没有移除原测试用例。
 - 验证：新增原版/变体/盘符前缀/非 cmd/普通快捷方式及人工确认隔离测试，`remediation-tests` 累计 41 项通过。
+
+## 任务 6：可疑名称与落地路径、清理后复查
+
+- `enhanced_engine.hpp::highRiskLocation/highRiskOnHost/Scanner::inspect`：已知可疑名称在 Windows、AppData、Temp 或所选 U 盘隐藏目录时列为高可疑；正常配置范围外同名文件仍仅为普通提示。
+- `quarantineReviewed`：仅逐项确认后，复核路径条件、文件大小/哈希/创建时间，按精确路径和当前哈希结束对应进程并隔离。自动 cleanOne 不接受这些候选的伪造 confirmed。
+- `postCleanReview`：清理后单次快照检查原文件路径和运行进程路径，仍存在/重现时警告；完成清单明确要求重启复查，不宣称已验证看门狗循环。
+- 人工隔离也做单次重现复查；原文件重现时不从待处理 confirmed 中移除。
+- 验证：`remediation-tests` 累计 49 项通过，本任务新增 8 项；进程动作使用 mock，没有运行病毒或终止真实进程。

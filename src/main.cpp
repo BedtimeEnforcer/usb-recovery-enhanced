@@ -420,7 +420,7 @@ void startClean(const std::vector<Finding>& confirmed)
     }, [collected] {
         for(const auto& line:*collected)if(line.rfind(L"已隔离：",0)==0) {
             S path=line.substr(S(L"已隔离：").size());
-            findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path);}),findings.end());
+            findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path) && !exists(path);}),findings.end());
         }
         showCleanResult(*collected);
     });
@@ -443,7 +443,7 @@ void doReview() {
     if(choice==201) {
         std::vector<Finding> approved;
         for(const auto& f:findings)if(!f.confirmed) {
-            bool eligible=(f.review==ReviewKind::ResidualName || f.review==ReviewKind::LinkVariant) && !f.digest.empty();
+            bool eligible=(f.review==ReviewKind::ResidualName || f.review==ReviewKind::LinkVariant || f.review==ReviewKind::HighRiskName) && !f.digest.empty();
             const S body=enhanced::reviewFileText(f)+(eligible?L"\r\n\r\n此项为待确认线索，尚不能确诊。确认属于异常文件后，是否备份隔离此文件？":L"\r\n\r\n此项仅供甄别，不会自动隔离，请用完整杀毒软件复核。");
             if(msgBox(L"逐项人工核查",eligible?L"是否隔离此残留候选？":L"需甄别文件",body,eligible?(TDCBF_YES_BUTTON|TDCBF_NO_BUTTON):TDCBF_OK_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(f);
         }
@@ -454,7 +454,12 @@ void doReview() {
             Journal j(data());
             for(const auto& f:approved)try{enhanced::quarantineReviewed(f,true,j,[logs](const S& line){logs->push_back(line);logLine(line);});}
             catch(const Error& e){S line=L"清理失败："+f.path+L" — "+e.text;logs->push_back(line);logLine(line);}
-        },[logs]{showCleanResult(*logs);});
+            std::vector<S> processPaths;processes([&](DWORD,const S& path){processPaths.push_back(path);},[logs](const S& line){logs->push_back(line);logLine(line);});
+            enhanced::postCleanReview(approved,processPaths,[logs](const S& line){logs->push_back(line);logLine(line);});
+        },[logs]{
+            for(const auto& line:*logs)if(line.rfind(L"已隔离：",0)==0){S path=line.substr(S(L"已隔离：").size());findings.erase(std::remove_if(findings.begin(),findings.end(),[&](const Finding& f){return same(f.path,path)&&!exists(path);}),findings.end());}
+            showCleanResult(*logs);
+        });
     } else if(choice==202 || choice==203) {
         std::vector<RegistrySnapshot> approved;
         for(const auto& policy:(choice==202?policyFindings:startupFindings)) {

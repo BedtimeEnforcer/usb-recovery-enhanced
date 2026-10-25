@@ -53,6 +53,7 @@ inline UiReport scanReport(const std::vector<Finding>& findings, const std::vect
 inline UiReport cleanReport(const std::vector<S>& collected) {
     UiReport r;
     size_t isolated = 0, registryRemoved = 0;
+    bool revived=false;
     bool startupFailed = false, startupDenied = false, startupChanged = false, startupOther = false, review = false;
     std::vector<S> failed, startupFailures;
     const S done = L"已隔离：", fail = L"清理失败：";
@@ -64,6 +65,7 @@ inline UiReport cleanReport(const std::vector<S>& collected) {
             else if (line.find(L"内容已变化") != S::npos) startupChanged = true;
             else startupOther = true;
         }
+        else if (line.rfind(L"复查发现",0)==0) revived=true;
         else if (line.rfind(L"处置待复核：", 0) == 0) review = true;
         else if (line.rfind(L"已移除人工确认注册表项：", 0) == 0) ++registryRemoved;
         else if (line.rfind(done, 0) == 0) ++isolated;
@@ -74,7 +76,7 @@ inline UiReport cleanReport(const std::vector<S>& collected) {
     }
     r.details = aftercareChecklist();
     r.anyIsolated = isolated > 0;
-    r.warning = startupFailed || review || !failed.empty() || (!isolated && !registryRemoved);
+    r.warning = revived || startupFailed || review || !failed.empty() || (!isolated && !registryRemoved);
     r.headline = isolated ? L"已隔离 " + num(isolated) + L" 项" : (registryRemoved ? L"已移除 " + num(registryRemoved) + L" 项注册表值" : L"本次未能清除病毒");
     if(startupFailed)r.headline+=L"；还有启动项未清除";
     if (!failed.empty()) {
@@ -97,6 +99,7 @@ inline UiReport cleanReport(const std::vector<S>& collected) {
     if (startupChanged) append(L"原因：启动项内容在检查后发生了变化。请重新检查并查杀。");
     if (startupDenied) append(L"原因：Windows 拒绝访问。请右键程序，选择“以管理员身份运行”后重试；若仍失败，请用完整杀毒软件处理。");
     if (startupOther) append(L"原因：读取或移除启动项时出错，具体错误见日志。请重新检查后重试。");
+    if(revived)append(L"复查发现文件或进程仍在或重新出现，请重启后复查，保留日志并用完整杀毒软件处理。");
     if (review) append(L"还需用完整杀毒软件检查其他残留。");
     if (r.warning) append(L"详细记录见日志。");
     return r;

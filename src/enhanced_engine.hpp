@@ -103,12 +103,30 @@ inline S fileTimeText(FILETIME time) {
 inline S reviewFileText(const Finding& f) {
     return L"路径："+f.path+L"\r\n大小："+num(f.fileSize)+L" 字节\r\nSHA-256："+(f.digest.empty()?L"未计算（超过上限或读取失败）":f.digest)+L"\r\n创建时间："+fileTimeText(f.created)+L"\r\n判断依据："+f.reason;
 }
+inline bool highRiskLocation(const S& path,const std::vector<S>& roots,const std::vector<S>& tempRoots,const S& usbRoot=L"") {
+    for(const auto& root:roots)if(underPath(path,root))return true;
+    for(const auto& root:tempRoots)if(underPath(path,root))return true;
+    if(!usbRoot.empty() && underPath(path,usbRoot)) {
+        S ancestor=parent(full(path));
+        while(underPath(ancestor,usbRoot) && !same(ancestor,usbRoot)) {
+            if(name(ancestor)==L"\uffff" || (attr(ancestor)&FILE_ATTRIBUTE_HIDDEN))return true;
+            ancestor=parent(ancestor);
+        }
+    }return false;
+}
+inline bool highRiskOnHost(const S& path) {
+    wchar_t windows[MAX_PATH],temp[MAX_PATH];GetWindowsDirectoryW(windows,MAX_PATH);GetTempPathW(MAX_PATH,temp);
+    std::vector<S> roots{windows};for(int id:{CSIDL_APPDATA,CSIDL_LOCAL_APPDATA})try{roots.push_back(folder(id));}catch(const Error&){}
+    S drive=full(path).substr(0,3);S usb=GetDriveTypeW(drive.c_str())==DRIVE_REMOVABLE?drive:L"";
+    return highRiskLocation(path,roots,{temp},usb);
+}
 class Scanner {
     const std::vector<HashRule>& table;
 public:
     size_t oversized=0, contentSkipped=0;
     S selfDigest;
-    std::vector<S> tempRoots;
+    std::vector<S> tempRoots, riskRoots;
+    S usbRoot;
     explicit Scanner(const std::vector<HashRule>& catalog=rules()) : table(catalog) {}
     void inspect(const S& p, std::vector<Finding>& out, Log log) {
         try {
@@ -127,10 +145,11 @@ public:
             ReviewKind kind=ReviewKind::None;
             if(extension(p,L".lnk") && n<=1048576 && variantWormLink(p))kind=ReviewKind::LinkVariant;
             else if(residualName(p))kind=ReviewKind::ResidualName;
+            else if(suspicious(p) && highRiskLocation(p,riskRoots,tempRoots,usbRoot))kind=ReviewKind::HighRiskName;
             else if(numericExe(p))for(const auto& temp:tempRoots)if(underPath(p,temp)){kind=ReviewKind::NumericTemp;break;}
             if(kind!=ReviewKind::None) {
                 WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(p).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
-                S why=kind==ReviewKind::LinkVariant?L"高可疑：cmd 目标与 U+FFFF/DrvMgr 命令变体；需逐项确认后隔离":(kind==ReviewKind::ResidualName?L"残留文件名匹配；仅名称不能确认病毒，需逐项人工确认":L"Temp 纯数字 EXE，需甄别；未知哈希不自动隔离");
+                S why=kind==ReviewKind::HighRiskName?L"高可疑：同名程序位于系统/AppData/Temp 或所选 U 盘隐藏目录；哈希未知，需逐项确认":kind==ReviewKind::LinkVariant?L"高可疑：cmd 目标与 U+FFFF/DrvMgr 命令变体；需逐项确认后隔离":(kind==ReviewKind::ResidualName?L"残留文件名匹配；仅名称不能确认病毒，需逐项人工确认":L"Temp 纯数字 EXE，需甄别；未知哈希不自动隔离");
                 out.push_back({p,digest,why,false,extension(p,L".lnk"),kind,n,info.ftCreationTime});return;
             }
             // 自身携带静态规则文本；相同字节的自身副本不作为内容线索。
@@ -232,7 +251,8 @@ inline std::vector<Finding> scan(const S& root, Log log, ScanProgress progress={
     auto inspect=[&](const S& p){if(!localAbsolute(p))return; if(seen.insert(lower(full(p))).second){report(p);scanner.inspect(p,out,log);++checked;report(p);}};
     log(L"加强版规则 "+S(RULE_VERSION)+L"：15 条精确指纹 + 原版 LNK + 7 类组合线索；新增家族未做真实感染测试。");
     wchar_t windows[MAX_PATH],temp[MAX_PATH]; GetWindowsDirectoryW(windows,MAX_PATH); GetTempPathW(MAX_PATH,temp);
-    scanner.tempRoots.push_back(temp);
+    scanner.tempRoots.push_back(temp);scanner.riskRoots.push_back(windows);scanner.usbRoot=root;
+    for(int id:{CSIDL_APPDATA,CSIDL_LOCAL_APPDATA})try{scanner.riskRoots.push_back(folder(id));}catch(const Error& e){log(e.text);}
     log(L"检查范围："+scopeDescription(options.expanded));
     std::vector<S> top{windows}, recursive{temp}, excluded;
     for(int id:{CSIDL_PROFILE,CSIDL_APPDATA,CSIDL_LOCAL_APPDATA,CSIDL_STARTUP,CSIDL_COMMON_STARTUP,CSIDL_COMMON_APPDATA,CSIDL_COMMON_DOCUMENTS}) {
@@ -274,7 +294,7 @@ inline void stopExact(const Finding& f, Journal& j, Log log) {
         if(!QueryFullProcessImageNameW(h.h,0,actual,&n) || !same(S(actual,n),f.path) || hash(S(actual,n))!=f.digest)throw Error{L"进程复核失败"};
         j.add(L"结束进程前",path,L"",num(pid));
         if(!TerminateProcess(h.h,1) || WaitForSingleObject(h.h,5000)!=WAIT_OBJECT_0)fail(L"结束恶意进程");
-        log(L"已结束确认命中的进程："+num(pid));
+        log((f.confirmed?L"已结束确认命中的进程：":L"已结束人工确认路径的进程：")+num(pid));
     },log);
 }
 inline void removeReferences(const Finding& f, Journal& j, Log log) {
@@ -301,9 +321,9 @@ inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& a
         log(L"已隔离："+f.path);
     } catch(const Error& e){j.add(L"清理失败",f.path,L"",e.text);log(L"清理失败："+f.path+L" — "+e.text);}
 }
-inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log) {
+inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log,std::function<void(const Finding&,Journal&,Log)> stop=stopExact) {
     if(!consent){log(L"用户保留核查文件："+f.path);return false;}
-    bool allowed=(f.review==ReviewKind::ResidualName && residualName(f.path)) ||
+    bool allowed=(f.review==ReviewKind::HighRiskName && suspicious(f.path) && highRiskOnHost(f.path)) || (f.review==ReviewKind::ResidualName && residualName(f.path)) ||
         (f.review==ReviewKind::LinkVariant && extension(f.path,L".lnk") && size(f.path)<=1048576 && variantWormLink(f.path));
     if(!allowed)throw Error{L"该线索不在可人工确认隔离范围"};
     noLinks(f.path);
@@ -311,12 +331,23 @@ inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log)
     WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(f.path).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
     if(CompareFileTime(&info.ftCreationTime,&f.created)!=0)throw Error{L"核查文件已替换，请重新检查"};
     j.add(L"用户逐项确认隔离",f.path,L"",f.reason);
+    if(f.review==ReviewKind::HighRiskName && stop)stop(f,j,log);
     quarantine(f.path,f.digest,j);log(L"已隔离："+f.path);return true;
+}
+inline bool postCleanReview(const std::vector<Finding>& items,const std::vector<S>& processPaths,Log log,std::function<bool(const S&)> present=exists) {
+    bool remaining=false;
+    for(const auto& f:items) {
+        if(present(f.path)){log(L"复查发现文件仍存在或重现："+f.path);remaining=true;}
+        for(const auto& path:processPaths)if(same(path,f.path)){log(L"复查发现进程仍在或复活："+path);remaining=true;break;}
+    }
+    log(L"复查说明：这是清理后的单次快照，仍须保存文件、重启，再检查电脑及 U 盘；看门狗持续复活尚未验证。");return remaining;
 }
 inline void clean(const std::vector<Finding>& items, Log log) {
     NativeFs native; Journal j(data()); log(L"隔离与记录目录："+j.dir);
     HostActions actions{stopExact,removeReferences};
     for(const auto& f:items)cleanOne(f,j,log,actions);
+    std::vector<S> paths;processes([&](DWORD,const S& path){paths.push_back(path);},log);
+    postCleanReview(items,paths,log);
 }
 
 inline bool numeric(const S& s) { if(s.empty() || s.size()>10)return false; for(auto c:s)if(c<L'0'||c>L'9')return false; return true; }

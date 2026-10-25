@@ -122,6 +122,23 @@ int wmain(int argc,wchar_t** argv){try{
     check(variantWormLink(realDriveVariant) && !wormLink(realDriveVariant),"P1-5 drive-prefixed lure is review-only");
     {Journal j(join(root,L"variant-journals"));check(!e::quarantineReviewed(variants[0],false,j,log) && exists(variantLink),"P1-5 variant shortcut retained without consent");
         check(e::quarantineReviewed(variants[0],true,j,log) && !exists(variantLink),"P1-5 explicit reviewed shortcut quarantine succeeds without weakening cleanOne");}
+    S high=join(temp,L"sysgredlvrs.exe");textFile(high,L"unknown harmless named payload fixture");
+    std::vector<Finding> highFindings;scanner.inspect(high,highFindings,log);
+    check(highFindings.size()==1 && !highFindings[0].confirmed && highFindings[0].review==ReviewKind::HighRiskName,"P1-6 unknown same-name payload in Temp is high suspicious rather than confirmed");
+    S ordinary=join(root,L"ordinary");mkdir(ordinary);S ordinaryName=join(ordinary,L"DrvMgr.exe");textFile(ordinaryName,L"harmless normal directory name");
+    std::vector<Finding> ordinaryFindings;scanner.inspect(ordinaryName,ordinaryFindings,log);
+    check(ordinaryFindings.size()==1 && ordinaryFindings[0].review==ReviewKind::None && !ordinaryFindings[0].confirmed,"P1-6 same name outside configured risky roots remains advisory only");
+    {Journal j(join(root,L"reviewed-high-journals"));int stopped=0;
+        auto stop=[&](const Finding& f,Journal&,Log){++stopped;check(same(f.path,high),"P1-6 reviewed stop callback is limited to confirmed user-selected path");};
+        check(!e::quarantineReviewed(highFindings[0],false,j,log,stop) && stopped==0 && exists(high),"P1-6 no process or file action without per-item consent");
+        check(e::quarantineReviewed(highFindings[0],true,j,log,stop) && stopped==1 && !exists(high),"P1-6 consented high-risk file uses revalidation and mocked exact process action");
+        rejects([&]{e::quarantineReviewed(ordinaryFindings[0],true,j,log,stop);},"P1-6 ordinary same-name advisory cannot enter manual isolation");
+    }
+    std::vector<S> revivalLog;
+    bool revival=e::postCleanReview({{high,L"",L"",true,false}},{high},[&](const S& line){revivalLog.push_back(line);},[](const S&){return true;});
+    auto revivalResult=cleanReport(revivalLog);
+    check(revival && revivalResult.warning && revivalResult.content.find(L"重启后复查")!=S::npos,"P1-6 file and process revival snapshot produces warning and reboot rescan steps");
+    check(!e::postCleanReview({{high,L"",L"",true,false}},{},log,[](const S&){return false;}),"P1-6 absent file and process do not invent a revival");
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}
