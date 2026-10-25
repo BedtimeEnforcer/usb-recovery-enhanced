@@ -158,7 +158,7 @@ public:
             if(disguised(p))reason=L"双扩展名可执行文件，可能伪装文档；仅凭名称不能确认病毒，请核查来源。";
             if(n<=1048576) {
                 if(extension(p,L".lnk")) reason=linkHint(parseLink(bytes(p)));
-                else if(lower(name(p))==L"autorun.inf" && autorunHint(decodeText(bytes(p)))) reason=L"Autorun 启动键引用脚本或脚本宿主；需核查目标，关闭自动运行并完整扫描。";
+                else if(lower(name(p))==L"autorun.inf" && autorunHint(decodeText(bytes(p)))) reason=L"Autorun 启动键引用脚本或脚本宿主；需核查目标，关闭自动运行，并用更新的杀毒软件复查电脑。";
                 else if(extension(p,L".vbs") || extension(p,L".vbe") || extension(p,L".js") || extension(p,L".jse") || extension(p,L".wsf") || extension(p,L".ps1")) {
                     if(scriptHint(decodeText(bytes(p)))) reason=L"脚本包含 USB 枚举、隐藏、快捷方式和驻留组合线索；仅供核查，不执行或自动隔离。";
                 } else if(n>=64 && frozenHint(bytes(p))) reason=L"FROZENHILL 配置字段组合线索（非完整 YARA）；需核查，不自动隔离。";

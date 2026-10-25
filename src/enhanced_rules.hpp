@@ -3,7 +3,7 @@
 
 namespace enhanced {
 using namespace usb;
-const wchar_t* const RULE_VERSION = L"2026.10.24.1";
+const wchar_t* const RULE_VERSION = L"2026.10.25.2";
 struct HashRule { S digest, family, source, solution; };
 inline const std::vector<HashRule>& rules() {
     static const S mandiant = L"https://cloud.google.com/blog/topics/threat-intelligence/infected-usb-steal-secrets";
@@ -38,18 +38,19 @@ inline const HashRule* matchDigest(const S& digest, const std::vector<HashRule>&
 inline S rulesText() {
     S text = L"U 盘修复助手 · 加强版\r\n规则版本：" + S(RULE_VERSION) + L"\r\n\r\n";
     text += L"内置 15 条 SHA-256 精确指纹（包含原版 1 条），另有原版精确 LNK 规则及 7 类可疑组合检查。\r\n";
-    text += L"仅精确命中文件和原版特定 LNK 支持确认后隔离。组合特征仅提示需核查，不能据此确定家族或宣称彻底清除。新增样本未做真实感染测试。\r\n\r\n";
-    text += L"【检查与处置范围】\r\n电脑：原版常见目录顶层、进程映像和 Run/RunOnce；增加当前用户 Roaming/Local/Temp/Startup、ProgramData 和 Public 的有界递归，以及启动命令中的绝对本地文件引用。\r\n";
-    text += L"U 盘：仅所选可移动卷，有界递归。不读取网络引用、重解析目录、系统回收站和系统卷信息；最多 200000 项/遍历、深度 128。哈希文件上限 64 MiB；内容/LNK 解析上限 1 MiB；超限与访问失败会报告。压缩包内部、其他用户和内存注入不在覆盖范围。\r\n";
+    text += L"仅精确命中文件和原版特定 LNK 支持确认后隔离。组合特征仅提示需核查，不能据此确定家族或保证已处理所有驻留。尚未进行加强版虚拟机真实感染验收。\r\n\r\n";
+    text += L"【检查与处置范围】\r\n电脑默认：Windows 和当前用户目录顶层、进程映像、Run/RunOnce 绝对本地引用；递归 Temp、Roaming/Local/Startup、ProgramData、Public。可选扩展检查 Windows 子目录、当前用户桌面/文档/下载和 Program Files；结果显示本次模式、未检查位置和访问限制。\r\n";
+    text += L"U 盘：仅所选可移动卷，有界递归。不读取网络引用、重解析目录、系统回收站和系统卷信息；本机递归和所选 U 盘各最多 200000 项、深度 128。哈希文件上限 64 MiB；内容/LNK 解析上限 1 MiB；超限与访问失败会报告。压缩包内部、其他用户和内存注入不在覆盖范围。\r\n";
     text += L"精确命中：复核规则及当前哈希；只终止映像路径和哈希均匹配的恶意进程；备份移除明确引用该文件的 Run/RunOnce；校验备份后隔离。不会因启动项出现 wscript/rundll32 等系统程序名就终止或隔离它。\r\n";
     text += L"DLL/内存/侧载：不会凭进程名称结束正常程序，不自动清理服务或计划任务；报告后仍需查杀软件复核，重启再检查。隔离失败保留错误记录。\r\n";
-    text += L"恢复：支持根目录隐藏容器和 .Trashes 下一级数字目录；跳过顶层可执行文件/脚本/快捷方式，拒绝含此类嵌套入口的目录。保留重名双方。先处理电脑传播源再恢复。\r\n\r\n";
+    text += L"恢复：支持根目录隐藏容器和 .Trashes 下一级数字目录；跳过顶层可执行文件/脚本/快捷方式，拒绝含此类嵌套入口的目录。保留重名双方。先检查所选 U 盘，未处理已确认项必须先隔离；递归恢复可见属性；仅提供已复核为空的 U+FFFF 文件夹删除确认。恢复成功不等于清毒。\r\n\r\n";
+    text += L"人工核查：tbtnds.dat/tbtcmds.dat 名称残留、可疑路径同名 EXE、cmd 诱饵变体逐项确认；Temp 纯数字 EXE 和其他组合线索只提示。Windows Settings 启动值与 NoDrives 策略须逐项确认、备份原值后处理；自设策略应保留。\r\n隔离区是明文备份，并非加密容器。网络、剪贴板和重启复查步骤见人工核查中的善后清单。\r\n\r\n";
     text += L"【组合特征与处理方案】\r\n";
     text += L"1. Bondat 风格：LNK 引用 .Trashes 中的 JS/JSE；先复查电脑启动文件夹/脚本，再核查 .Trashes 下数字目录中的原文件。正常 macOS .Trashes 本身不判毒。\r\n来源：https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=Worm%3AJS%2FBondat\r\n";
     text += L"2. PlugX 风格：LNK 同时出现 U+00A0、RECYCLER.BIN 和载荷/侧载程序引用；保留 Unicode 路径，核查侧载 DLL 和计划任务。正常 x32dbg、Dism 等程序不能按名称删除。\r\n来源：https://unit42.paloaltonetworks.com/plugx-variants-in-usbs/\r\n";
     text += L"3. Raspberry Robin 风格：LNK 通过 msiexec 引用 HTTP(S)，或 cmd/type 管道；核查 RunOnce 引用的真实载荷，复查内存及后续投递。正常远程安装链接也可能触发提示。\r\n来源：https://www.microsoft.com/en-us/security/blog/2022/10/27/raspberry-robin-worm-part-of-larger-ecosystem-facilitating-pre-ransomware-activity/\r\n";
     text += L"4. 脚本型 USB 传播组合：脚本同时包含驱动器枚举、隐藏属性、快捷方式创建及驻留写入相关词；仅静态线索，不执行脚本，也不按家族定性。\r\n参考：https://www.trendmicro.com/vinfo/us/threat-encyclopedia/malware/worm.wsf.dunihi.nlj\r\n";
-    text += L"5. Autorun 脚本入口：仅在 [autorun] 的启动键引用脚本/脚本宿主时提示；单独存在 autorun.inf、图标或普通安装入口不算命中。核查被引用脚本，关闭自动运行并完整扫描。\r\n";
+    text += L"5. Autorun 脚本入口：仅在 [autorun] 的启动键引用脚本/脚本宿主时提示；单独存在 autorun.inf、图标或普通安装入口不算命中。核查被引用脚本，关闭自动运行，并用更新的杀毒软件复查电脑。\r\n";
     text += L"6. 双扩展名伪装：文档/图片扩展名后接 EXE/SCR/COM；需核查来源，不能仅凭文件名隔离。\r\n";
     text += L"7. FROZENHILL 内容线索：有效 PE 同时包含报告中的 6 个配置字段字符串；这是自建的较宽松线索，非完整 YARA 规则，仅供核查。\r\n来源：https://cloud.google.com/blog/topics/threat-intelligence/infected-usb-steal-secrets\r\n\r\n";
     text += L"【精确指纹及逐项方案】\r\n";

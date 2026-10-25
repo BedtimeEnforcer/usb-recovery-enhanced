@@ -28,13 +28,18 @@ inline UiReport scanReport(const std::vector<Finding>& findings, const std::vect
     UiReport r;
     size_t confirmed = 0, unknown = 0;
     r.details=L"未命中不代表整机无毒。\r\n以下为本次范围和未检查记录：";
-    for(const auto& notice:notices)r.details+=L"\r\n"+notice;
+    size_t limitations=0;
+    for(size_t i=0;i<notices.size();++i) {
+        if(notices[i].rfind(L"检查范围：",0)!=0)++limitations;
+        if(i<20)r.details+=L"\r\n"+notices[i];
+    }
+    if(notices.size()>20)r.details+=L"\r\n其余记录请展开操作记录或导出日志查看。";
     for (const auto& f : findings) {
         if (f.confirmed) ++confirmed;
         else ++unknown;
     }
-    r.warning = confirmed > 0 || unknown > 0;
-    r.headline = confirmed ? L"本次命中 " + num(confirmed) + L" 项" : L"本次未发现病毒";
+    r.warning = confirmed > 0 || unknown > 0 || limitations > 0;
+    r.headline = confirmed ? L"本次命中 " + num(confirmed) + L" 项" : L"本次未命中已知病毒";
     if (confirmed) {
         r.content = L"命中的病毒文件如下：";
         size_t shown = 0;
@@ -47,6 +52,9 @@ inline UiReport scanReport(const std::vector<Finding>& findings, const std::vect
     } else if (unknown) {
         r.content = L"发现 " + num(unknown) + L" 项可疑文件，尚不能确定是病毒，详情见日志。";
     }
+    if(!r.content.empty())r.content+=L"\r\n\r\n";
+    if(limitations)r.content+=L"部分位置未检查，详情可展开查看。\r\n";
+    r.content+=L"未命中不代表整机无毒。";
     return r;
 }
 
@@ -77,7 +85,7 @@ inline UiReport cleanReport(const std::vector<S>& collected) {
     r.details = aftercareChecklist();
     r.anyIsolated = isolated > 0;
     r.warning = revived || startupFailed || review || !failed.empty() || (!isolated && !registryRemoved);
-    r.headline = isolated ? L"已隔离 " + num(isolated) + L" 项" : (registryRemoved ? L"已移除 " + num(registryRemoved) + L" 项注册表值" : L"本次未能清除病毒");
+    r.headline = isolated ? L"已隔离 " + num(isolated) + L" 项" : (registryRemoved ? L"已移除 " + num(registryRemoved) + L" 项注册表值" : L"未完成所选处理");
     if(startupFailed)r.headline+=L"；还有启动项未清除";
     if (!failed.empty()) {
         r.content = L"以下 " + num(failed.size()) + L" 项未能清除：";

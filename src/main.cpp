@@ -10,7 +10,7 @@ using namespace usb;
 namespace app = enhanced;
 static std::vector<RegistrySnapshot> policyFindings, startupFindings;
 static bool scanCompleted=false;
-static S scannedRoot;
+static S scannedRoot, lastScanDetails;
 static const wchar_t* const APP_TITLE = L"U 盘修复助手 · 加强版";
 #else
 namespace app = usb;
@@ -394,6 +394,11 @@ void doScan()
         std::vector<Finding> confirmed;
         for (auto& f : findings) if (f.confirmed) confirmed.push_back(f);
         auto result = scanReport(findings, *notices);
+        lastScanDetails=result.details;
+        if(!policyFindings.empty() || !startupFindings.empty()) {
+            result.warning=true;
+            result.content+=L"\r\n有 "+num(startupFindings.size())+L" 个指定启动项、"+num(policyFindings.size())+L" 个隐藏磁盘策略需确认，点“人工核查”逐项查看。";
+        }
         if (confirmed.empty()) {
             msgBox(L"检查完成", result.headline, result.content,
                    TDCBF_OK_BUTTON, result.warning ? TD_WARNING_ICON : TD_INFORMATION_ICON, result.details,L"查看范围与未检查位置");
@@ -428,8 +433,20 @@ void startClean(const std::vector<Finding>& confirmed)
 }
 
 #ifdef USB_ENHANCED
+LRESULT CALLBACK reviewReportProc(HWND h,UINT message,WPARAM w,LPARAM l) {
+    if(message==WM_SIZE){MoveWindow(GetDlgItem(h,1),12,12,std::max(1,int(LOWORD(l))-24),std::max(1,int(HIWORD(l))-24),TRUE);return 0;}
+    return DefWindowProcW(h,message,w,l);
+}
+void showTextReport(const S& title,const S& text) {
+    WNDCLASSW cls{};cls.lpfnWndProc=reviewReportProc;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"UsbReviewReport";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);RegisterClassW(&cls);
+    HWND report=CreateWindowW(cls.lpszClassName,title.c_str(),WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,PX(850),PX(620),window,nullptr,cls.hInstance,nullptr);
+    if(!report)fail(L"打开核查详情");
+    HWND edit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,12,12,PX(800),PX(540),report,(HMENU)1,cls.hInstance,nullptr);
+    SendMessageW(edit,EM_SETLIMITTEXT,1024*1024,0);SendMessageW(edit,WM_SETFONT,(WPARAM)font,TRUE);SetWindowTextW(edit,text.c_str());
+    RECT r;GetClientRect(report,&r);MoveWindow(edit,12,12,r.right-24,r.bottom-24,TRUE);ShowWindow(report,SW_SHOW);
+}
 static int reviewMenu() {
-    TASKDIALOG_BUTTON buttons[]={{201,L"逐项核查文件"},{202,L"核查 NoDrives 隐藏磁盘策略"},{203,L"核查 Windows Settings 启动项"},{204,L"查看善后与复查清单"}};
+    TASKDIALOG_BUTTON buttons[]={{201,L"逐项核查文件"},{202,L"核查 NoDrives 隐藏磁盘策略"},{203,L"核查 Windows Settings 启动项"},{204,L"查看善后与复查清单"},{205,L"查看本次范围与未检查位置"}};
     TASKDIALOGCONFIG cfg{};cfg.cbSize=sizeof(cfg);cfg.hwndParent=window;
     cfg.pszWindowTitle=L"人工核查";cfg.pszMainInstruction=L"选择要核查的项目";
     cfg.pszContent=L"只有逐项确认后才会备份处理；可疑线索不等于确诊病毒。";
@@ -440,13 +457,16 @@ static int reviewMenu() {
 void doReview() {
     if(busy)return;
     int choice=reviewMenu();
-    if(choice==204){msgBox(L"善后与复查",L"请逐项核对",aftercareChecklist());return;}
+    if(choice==204){showTextReport(L"善后与复查清单",aftercareChecklist());return;}
+    if(choice==205){showTextReport(L"扫描范围与未检查位置",lastScanDetails.empty()?L"请先完成检查，结果将显示本次实际扫描范围。":lastScanDetails);return;}
     if(choice==201) {
         std::vector<Finding> approved;
         for(const auto& f:findings)if(!f.confirmed) {
             bool eligible=(f.review==ReviewKind::ResidualName || f.review==ReviewKind::LinkVariant || f.review==ReviewKind::HighRiskName) && !f.digest.empty();
             const S body=enhanced::reviewFileText(f)+(eligible?L"\r\n\r\n此项为待确认线索，尚不能确诊。确认属于异常文件后，是否备份隔离此文件？":L"\r\n\r\n此项仅供甄别，不会自动隔离，请用完整杀毒软件复核。");
-            if(msgBox(L"逐项人工核查",eligible?L"是否隔离此残留候选？":L"需甄别文件",body,eligible?(TDCBF_YES_BUTTON|TDCBF_NO_BUTTON):TDCBF_OK_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(f);
+            int answer=msgBox(L"逐项人工核查",eligible?L"是否隔离此待确认文件？":L"需甄别文件",body,eligible?(TDCBF_YES_BUTTON|TDCBF_NO_BUTTON|TDCBF_CANCEL_BUTTON):(TDCBF_OK_BUTTON|TDCBF_CANCEL_BUTTON),TD_WARNING_ICON);
+            if(answer==IDCANCEL)return;
+            if(answer==IDYES)approved.push_back(f);
         }
         if(approved.empty())return;
         if(!admin()){msgBox(L"需要管理员权限",L"请以管理员身份运行",L"关闭程序，右键选择“以管理员身份运行”，重新检查后再确认。");return;}
@@ -594,7 +614,7 @@ void about()
 {
     S text = L"单文件、离线、无需 .NET 或外部 VC++ 运行库。\r\n面向 Win7 SP1（32/64 位）、Win10/11。\r\nWin7 与 Win10 已完成真实感染环境实测。\r\n\r\n电脑检查：进程映像、Run/RunOnce、常见落地目录顶层。\r\n不含全盘、服务、计划任务、其他用户和未知变种。\r\n恢复：移动所选隐藏目录内容至根目录；重名保留双方。\r\n日志与隔离：%LOCALAPPDATA%\\UsbRecovery。\r\n\r\n编译：GCC / MinGW-w64（MSVCRT）。\r\n第三方许可已嵌入 EXE，可用 --licenses <文件路径> 导出。\r\n程序未签名，不应关闭杀毒软件来运行。";
 #ifdef USB_ENHANCED
-    text = L"加强版 · 规则 " + S(enhanced::RULE_VERSION) + L"\r\n单文件、离线、无需 .NET 或外部 VC++ 运行库。\r\n编译目标 Win7 SP1 / Win10 / Win11（32 位程序）。\r\n本加强版尚未做虚拟机真实感染验收；原版已知样本曾在 Win7/Win10 验证。\r\n\r\n15 条精确指纹 + 原版精确 LNK + 7 类可疑组合。\r\n文件哈希上限 64 MiB，内容解析上限 1 MiB，遍历有上限。\r\n不覆盖压缩包内部、内存注入或全部驻留机制。\r\n\r\n查看“规则与处理方案”了解来源、步骤和范围。\r\n日志与隔离：%LOCALAPPDATA%\\UsbRecovery。\r\n程序未签名。第三方许可可用 --licenses <文件路径> 导出。";
+    text = L"加强版 · 规则 " + S(enhanced::RULE_VERSION) + L"\r\n单文件、离线、无需 .NET 或外部 VC++ 运行库。\r\n编译目标 Win7 SP1 / Win10 / Win11（32 位程序）。\r\n尚未进行加强版虚拟机真实感染验收；原版已知样本曾在 Win7/Win10 验证。\r\n\r\n15 条精确指纹 + 原版精确 LNK + 7 类可疑组合。\r\n文件哈希上限 64 MiB，内容解析上限 1 MiB，遍历有上限。\r\n不覆盖压缩包内部、内存注入或全部驻留机制。\r\n\r\n查看“规则与处理方案”了解来源、步骤和范围。\r\n日志与隔离：%LOCALAPPDATA%\\UsbRecovery。\r\n程序未签名。第三方许可可用 --licenses <文件路径> 导出。";
 #endif
     msgBox(L"说明与兼容性", APP_TITLE, text, TDCBF_OK_BUTTON, TD_INFORMATION_ICON);
 }
