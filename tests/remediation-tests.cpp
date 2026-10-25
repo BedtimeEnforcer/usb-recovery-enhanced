@@ -45,6 +45,22 @@ int wmain(int argc,wchar_t** argv){try{
     auto report=cleanReport({L"已隔离：fixture"});
     check(report.details.find(L"UPnP")!=S::npos && report.details.find(L"45.141.233.6")!=S::npos && report.details.find(L"94.26.90.235")!=S::npos && report.details.find(L"P2P")!=S::npos,"P0-1 completion contains manual network checklist");
     check(report.details.find(L"逐笔核对收款地址")!=S::npos && report.details.find(L"密码")!=S::npos && report.details.find(L"新助记词")!=S::npos,"P0-1 completion contains clipboard transfer and credential checklist");
+    key.string(L"Windows Settings",L"cmd.exe /c missing.exe");
+    RunEntry orphan{HKEY_CURRENT_USER,0,key.path,L"Windows Settings",L"cmd.exe /c missing.exe",L"",REG_SZ};
+    auto startups=namedStartupCandidates({orphan},log);
+    check(startups.size()==1 && registryValueText(startups[0]).find(L"missing.exe")!=S::npos,"P0-2 orphan named startup remains visible without an existing target");
+    {Journal j(join(root,L"run-journals"));cleanReviewedStartup(startups[0],false,j,log);check(RegQueryValueExW(key.h,L"Windows Settings",nullptr,nullptr,nullptr,nullptr)==ERROR_SUCCESS,"P0-2 named startup is not deleted without consent");
+        std::vector<S> failedLog;
+        cleanReviewedStartup(startups[0],true,j,[&](const S& line){failedLog.push_back(line);},[](const RegistrySnapshot&,bool,Journal&,Log)->bool{throw Error{L"权限不足 [5]"};});
+        auto failedReport=cleanReport({L"已隔离：fixture",failedLog.at(0)});
+        check(failedReport.warning && failedReport.content.rfind(L"启动项未清除",0)==0 && failedReport.content.find(key.path)!=S::npos && failedReport.content.find(L"HKCU")!=S::npos && failedReport.content.find(L"Windows Settings")!=S::npos && failedReport.content.find(L"重启后复查")!=S::npos,"P0-2 startup deletion failure is first with hive key value reason and rescan instruction");
+        cleanReviewedStartup(startups[0],true,j,log);
+        check(RegQueryValueExW(key.h,L"Windows Settings",nullptr,nullptr,nullptr,nullptr)==ERROR_FILE_NOT_FOUND,"P0-2 consent removes backed-up orphan named startup");
+    }
+    key.string(L"Windows Settings",L"rundll32.exe C:\\fixture\\missing.dll,Entry");
+    auto indirect=namedStartupCandidates({orphan},log);
+    check(indirect.size()==1 && registryValueText(indirect[0]).find(L"rundll32")!=S::npos,"P0-2 indirect named startup is listed for confirmation");
+    check(e::references(L"\"C:\\fixture\\confirmed.exe\" /a",L"C:\\fixture\\confirmed.exe"),"P0-2 direct confirmed-file reference still matches");
     // More task-specific regression cases are appended here.
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& error){std::cerr<<utf8(error.text)<<std::endl;return 1;}}

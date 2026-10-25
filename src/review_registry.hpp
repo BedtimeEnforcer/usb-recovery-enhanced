@@ -59,4 +59,20 @@ inline bool removeReviewedValue(const RegistrySnapshot& s,bool consent,Journal& 
     j.add(L"人工确认移除注册表项",registryLocation(s),L"",L"已备份原始字节");
     log(L"已移除人工确认注册表项："+registryLocation(s));return true;
 }
+inline std::vector<RegistrySnapshot> namedStartupCandidates(const std::vector<RunEntry>& entries,Log log) {
+    std::vector<RegistrySnapshot> out;
+    for(const auto& r:entries)if(lower(r.name)==L"windows settings") {
+        auto values=readRegistryValue(r.hive,r.view,r.key,r.name,log);
+        out.insert(out.end(),values.begin(),values.end());
+    }return out;
+}
+using ReviewedValueAction=std::function<bool(const RegistrySnapshot&,bool,Journal&,Log)>;
+inline void cleanReviewedStartup(const RegistrySnapshot& s,bool consent,Journal& j,Log log,ReviewedValueAction action=removeReviewedValue) {
+    if(lower(s.name)!=L"windows settings")throw Error{L"不是待确认的指定启动值名"};
+    try{action(s,consent,j,log);}
+    catch(const Error& e){
+        j.add(L"启动项移除失败",registryLocation(s),L"",e.text);
+        log(L"启动项移除失败："+registryLocation(s)+L" — "+e.text);
+    }
+}
 } // namespace usb

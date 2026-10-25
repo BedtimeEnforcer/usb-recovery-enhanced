@@ -7,7 +7,7 @@ using namespace usb;
 #ifdef USB_ENHANCED
 #include "enhanced_engine.hpp"
 namespace app = enhanced;
-static std::vector<RegistrySnapshot> policyFindings;
+static std::vector<RegistrySnapshot> policyFindings, startupFindings;
 static const wchar_t* const APP_TITLE = L"U 盘修复助手 · 加强版";
 #else
 namespace app = usb;
@@ -365,6 +365,8 @@ void doScan()
             logLine(s);
         }, scanProgress);
 #ifdef USB_ENHANCED
+        startupFindings = namedStartupCandidates(runs([notices](const S& line){notices->push_back(line);logLine(line);}),logLine);
+        for(const auto& startup:startupFindings)logLine(L"需人工确认启动项 | "+registryLocation(startup)+L" | "+registryValueText(startup));
         policyFindings = noDrivesPolicies([notices](const S& line){notices->push_back(line);logLine(line);});
         for(const auto& policy:policyFindings)logLine(L"需人工确认策略 | "+registryLocation(policy)+L" | "+registryValueText(policy));
 #endif
@@ -406,7 +408,7 @@ void startClean(const std::vector<Finding>& confirmed)
 
 #ifdef USB_ENHANCED
 static int reviewMenu() {
-    TASKDIALOG_BUTTON buttons[]={{201,L"逐项核查文件"},{202,L"核查 NoDrives 隐藏磁盘策略"},{204,L"查看善后与复查清单"}};
+    TASKDIALOG_BUTTON buttons[]={{201,L"逐项核查文件"},{202,L"核查 NoDrives 隐藏磁盘策略"},{203,L"核查 Windows Settings 启动项"},{204,L"查看善后与复查清单"}};
     TASKDIALOGCONFIG cfg{};cfg.cbSize=sizeof(cfg);cfg.hwndParent=window;
     cfg.pszWindowTitle=L"人工核查";cfg.pszMainInstruction=L"选择要核查的项目";
     cfg.pszContent=L"只有逐项确认后才会备份处理；可疑线索不等于确诊病毒。";
@@ -433,15 +435,22 @@ void doReview() {
             for(const auto& f:approved)try{enhanced::quarantineReviewed(f,true,j,[logs](const S& line){logs->push_back(line);logLine(line);});}
             catch(const Error& e){S line=L"清理失败："+f.path+L" — "+e.text;logs->push_back(line);logLine(line);}
         },[logs]{showCleanResult(*logs);});
-    } else if(choice==202) {
+    } else if(choice==202 || choice==203) {
         std::vector<RegistrySnapshot> approved;
-        for(const auto& policy:policyFindings) {
-            S body=registryLocation(policy)+L"\r\n"+registryValueText(policy)+L"\r\n\r\n若为用户或管理员自己设置的策略请保留。是否备份原值并删除此 NoDrives 值？";
-            if(msgBox(L"隐藏磁盘策略",L"此策略不一定由病毒设置",body,TDCBF_YES_BUTTON|TDCBF_NO_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(policy);
+        for(const auto& policy:(choice==202?policyFindings:startupFindings)) {
+            S body=registryLocation(policy)+L"\r\n"+registryValueText(policy)+(choice==202?L"\r\n\r\n若为用户或管理员自己设置的策略请保留。是否备份原值并删除此 NoDrives 值？":L"\r\n\r\n此值可能是孤儿项或间接启动命令，值名本身不能确诊。若属于正常程序请保留。是否备份原值并删除？");
+            if(msgBox(L"逐项核查注册表",L"此项不一定由病毒设置",body,TDCBF_YES_BUTTON|TDCBF_NO_BUTTON,TD_WARNING_ICON)==IDYES)approved.push_back(policy);
         }
         if(approved.empty()){msgBox(L"人工核查",L"未选择要删除的策略",L"请先检查；自己设置的策略应保留。");return;}
         if(!admin()){msgBox(L"需要管理员权限",L"请以管理员身份运行",L"涉及系统策略，请重新以管理员身份检查并确认。");return;}
-        run(L"正在备份策略原值……",[approved]{Journal j(data());for(const auto& policy:approved)try{removeReviewedValue(policy,true,j,logLine);}catch(const Error& e){logLine(L"策略项清理失败："+registryLocation(policy)+L" — "+e.text);throw;}},[]{msgBox(L"人工核查结果",L"策略处理结束",L"所选策略已备份处理，请重新检查。此结果不代表整机已清毒。");});
+        auto logs=std::make_shared<std::vector<S>>();
+        run(L"正在备份注册表原值……",[approved,choice,logs]{
+            Journal j(data());auto log=[logs](const S& line){logs->push_back(line);logLine(line);};
+            for(const auto& policy:approved) {
+                if(choice==203)cleanReviewedStartup(policy,true,j,log);
+                else try{removeReviewedValue(policy,true,j,log);}catch(const Error& e){log(L"策略项清理失败："+registryLocation(policy)+L" — "+e.text);throw;}
+            }
+        },[logs]{showCleanResult(*logs);});
     }
 }
 #endif

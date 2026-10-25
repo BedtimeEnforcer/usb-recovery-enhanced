@@ -293,7 +293,7 @@ inline void stopExact(const Finding& f, Journal& j, Log log) {
 inline void removeReferences(const Finding& f, Journal& j, Log log) {
     for(const auto& r:runs(log))if(references(r.value,f.path)) {
         try{removeRun(r,j);log(L"已移除精确关联启动项："+r.name);}
-        catch(const Error& e){j.add(L"启动项移除失败",r.name,L"",e.text);log(L"启动项移除失败（已跳过，不影响文件隔离）："+r.name+L" — "+e.text);}
+        catch(const Error& e){j.add(L"启动项移除失败",r.name,L"",e.text);log(L"启动项移除失败："+registryLocation(r.hive,r.view,r.key,r.name)+L" — "+e.text);}
     }
 }
 inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& actions, const std::vector<HashRule>& table=rules()) {
