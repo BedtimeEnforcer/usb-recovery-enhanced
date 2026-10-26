@@ -145,7 +145,7 @@ int wmain(int argc,wchar_t** argv){try{
     check(guide.find(S(L"上传钱包")+L"密钥")==S::npos && guide.find(L"李晓达")!=S::npos,"P1-7 guide removes unsupported exfiltration claim while retaining creator");
     auto cautious=scanReport({}, {L"检查范围："+e::scopeDescription(false),L"未检查：fixture [5]"});
     check(cautious.warning && cautious.content.find(L"未命中不代表整机无毒")!=S::npos && cautious.details.find(L"未检查：fixture [5]")!=S::npos,"P2-8 completion preserves coverage limitations without claiming clean system");
-    check(e::rulesText().find(L"尚未进行加强版虚拟机真实感染验收")!=S::npos && e::rulesText().find(L"扩展检查")!=S::npos,"P2-8 rule export retains unvalidated status and actual scope modes");
+    check(e::rulesText().find(L"尚未进行加强版虚拟机真实感染验收")!=S::npos && e::rulesText().find(L"推荐检查")!=S::npos,"P2-8 rule export retains unvalidated status and recommended scope");
     check(e::rules()[0].expectedSize==85504 && !e::ruleSizeMatches(e::rules()[0],85505),"P2-9 built-in original fingerprint enforces exact registered size");
     auto unregistered=fixtureRules;unregistered[0].expectedSize=0; e::Scanner unregisteredScanner(unregistered);std::vector<Finding> sizeAdvisory;
     unregisteredScanner.inspect(fixture,sizeAdvisory,log);

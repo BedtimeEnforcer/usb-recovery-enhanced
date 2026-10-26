@@ -22,17 +22,17 @@ try {
     $env:PATH = $bin + ';' + $env:PATH
     & "$bin\windres.exe" -i app.rc -o resources.o
     if ($LASTEXITCODE -ne 0) { throw 'Resource build failed' }
-    & "$bin\g++.exe" -std=c++17 -O2 -Wall -Wextra -static -static-libgcc -static-libstdc++ -municode -mwindows -DUNICODE -D_UNICODE -DUSB_ENHANCED main.cpp resources.o -o UsbRecoveryEnhanced.exe '-Wl,--major-os-version,6,--minor-os-version,1,--major-subsystem-version,6,--minor-subsystem-version,1' -ladvapi32 -lcrypt32 -lshell32 -lcomctl32 -lcomdlg32 -luser32 -lgdi32
+    & "$bin\g++.exe" -std=c++17 -O2 -Wall -Wextra -static -static-libgcc -static-libstdc++ -municode -mwindows -DUNICODE -D_UNICODE -DUSB_ENHANCED main.cpp resources.o -o UsbRecoveryEnhanced.exe '-Wl,--major-os-version,6,--minor-os-version,1,--major-subsystem-version,6,--minor-subsystem-version,1' -ladvapi32 -lcrypt32 -lshell32 -lcomctl32 -lcomdlg32 -luser32 -lgdi32 -lole32 -loleaut32 -luuid -ltaskschd
     if ($LASTEXITCODE -ne 0) { throw 'Enhanced build failed' }
     Copy-Item -LiteralPath 'UsbRecoveryEnhanced.exe' -Destination (Join-Path $out 'U盘修复助手-加强版.exe') -Force
     & "$bin\objdump.exe" -p UsbRecoveryEnhanced.exe | Out-File -LiteralPath (Join-Path $out 'pe-imports.txt') -Encoding utf8
     if ($Tests) {
-        foreach ($test in @('tests','report-tests','enhanced-tests','remediation-tests','ui-progress-tests')) {
+        foreach ($test in @('tests','report-tests','enhanced-tests','remediation-tests','workflow-tests','ui-progress-tests')) {
             $entryFlags = @()
             if ($test -ne 'report-tests') { $entryFlags = @('-municode') }
             $uiFlags = @()
             if ($test -eq 'ui-progress-tests') { $uiFlags = @('-DUSB_ENHANCED','resources.o') }
-            & "$bin\g++.exe" -std=c++17 -O2 -Wall -Wextra -static @entryFlags @uiFlags -DUNICODE -D_UNICODE (Join-Path $PSScriptRoot "tests\$test.cpp") -o "$test.exe" -I(Join-Path $PSScriptRoot 'src') -ladvapi32 -lcrypt32 -lshell32 -lcomctl32 -lcomdlg32 -luser32 -lgdi32
+            & "$bin\g++.exe" -std=c++17 -O2 -Wall -Wextra -static @entryFlags @uiFlags -DUNICODE -D_UNICODE (Join-Path $PSScriptRoot "tests\$test.cpp") -o "$test.exe" -I(Join-Path $PSScriptRoot 'src') -ladvapi32 -lcrypt32 -lshell32 -lcomctl32 -lcomdlg32 -luser32 -lgdi32 -lole32 -loleaut32 -luuid -ltaskschd
             if ($LASTEXITCODE -ne 0) { throw "Test compilation failed: $test" }
             Copy-Item -LiteralPath "$test.exe" -Destination $out -Force
             $fixture = Join-Path $stage ('fixture-' + $test + '-' + [guid]::NewGuid().ToString('N'))

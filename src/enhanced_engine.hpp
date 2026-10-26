@@ -1,6 +1,6 @@
 #pragma once
 #include "enhanced_rules.hpp"
-#include "review_registry.hpp"
+#include "operation_state.hpp"
 
 namespace enhanced {
 using namespace usb;
@@ -121,25 +121,32 @@ inline bool highRiskOnHost(const S& path) {
     return highRiskLocation(path,roots,{temp},usb);
 }
 class Scanner {
-    const std::vector<HashRule>& table;
+    std::vector<HashRule> table;
 public:
     size_t oversized=0, contentSkipped=0;
+    bool inspectFailed=false;
+    std::function<S(const S&)> digestFile=hash;
     S selfDigest;
     std::vector<S> tempRoots, riskRoots;
     S usbRoot;
-    explicit Scanner(const std::vector<HashRule>& catalog=rules()) : table(catalog) {}
+    Scanner(const std::vector<HashRule>& catalog=rules()) : table(catalog) {}
     void inspect(const S& p, std::vector<Finding>& out, Log log) {
+        inspectFailed=false;
         try {
             noLinks(p); auto n=size(p);
-            std::vector<Finding> base; int missing=0;
-            usb::inspect(p,base,log,missing);
-            if(!base.empty() && base[0].confirmed) { base[0].fileSize=n;out.push_back(base[0]); return; }
+            std::vector<Finding> base;
+            // Hash once per file. The old scanner hashed original-size nonmatches twice.
+            if(extension(p,L".lnk") && n<=1048576 && wormLink(p)) {
+                out.push_back({p,digestFile(p),L"原版病毒诱饵快捷方式",true,true,ReviewKind::None,n});return;
+            }
+            if(suspicious(p))base.push_back({p,L"",L"同名未知程序，请核查来源",false,false});
             S digest;
             if(n<=HASH_LIMIT) {
-                digest=hash(p);
+                digest=digestFile(p);
                 if(const auto* rule=matchDigest(digest,table)) {
                     bool sizeOk=ruleSizeMatches(*rule,n);
-                    out.push_back({p,digest,(sizeOk?L"大小与 SHA-256 精确命中：":L"SHA-256 命中但登记大小缺失或不符，仅提示复核：")+rule->family+L"；方案："+rule->solution+L"；来源："+rule->source,sizeOk,false,ReviewKind::None,n});
+                    out.push_back({p,digest,(sizeOk?L"大小与 SHA-256 精确命中：":L"已知恶意 SHA-256 命中，登记大小缺失或不符，须明确选择隔离：")+rule->family+L"；方案："+rule->solution+L"；来源："+rule->source,sizeOk,false,sizeOk?ReviewKind::None:ReviewKind::KnownHash,n});
+                    WIN32_FILE_ATTRIBUTE_DATA meta{};if(!GetFileAttributesExW(xp(p).c_str(),GetFileExInfoStandard,&meta))fail(L"读取命中文件信息");out.back().created=meta.ftCreationTime;
                     return;
                 }
             } else ++oversized;
@@ -170,7 +177,7 @@ public:
                 if(!reason.empty())out.push_back({p,digest,reason,false,extension(p,L".lnk"),ReviewKind::None,n,info.ftCreationTime});
                 else {base[0].digest=digest;base[0].fileSize=n;base[0].created=info.ftCreationTime;out.push_back(base[0]);}
             }
-        } catch(const Error& e) { log(L"未检查："+p+L" — "+e.text); }
+        } catch(const Error& e) { inspectFailed=true;log(L"未检查："+p+L" — "+e.text); }
     }
 };
 
@@ -330,7 +337,8 @@ inline void removeReferences(const Finding& f, Journal& j, Log log) {
         catch(const Error& e){j.add(L"启动项移除失败",r.name,L"",e.text);log(L"启动项移除失败："+registryLocation(r.hive,r.view,r.key,r.name)+L" — "+e.text);}
     }
 }
-inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& actions, const std::vector<HashRule>& table=rules()) {
+inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& actions, const std::vector<HashRule>& table=rules(),ActionResult* outcome=nullptr) {
+    if(outcome)*outcome={ActionKind::File,ActionStatus::Pending,f.path,L"",true};
     if(!f.confirmed) { log(L"需核查项保留："+f.path); return; }
     try {
         noLinks(f.path);
@@ -347,19 +355,21 @@ inline void cleanOne(const Finding& f, Journal& j, Log log, const HostActions& a
         // 最后再次锁定并复核同一哈希，继承原版的备份校验后删除。
         quarantine(f.path,f.digest,j);
         log(L"已隔离："+f.path);
-    } catch(const Error& e){j.add(L"清理失败",f.path,L"",e.text);log(L"清理失败："+f.path+L" — "+e.text);}
+        if(outcome)outcome->status=ActionStatus::Done;
+    } catch(const Error& e){if(outcome){outcome->status=ActionStatus::Failed;outcome->reason=e.text;}j.add(L"清理失败",f.path,L"",e.text);log(L"清理失败："+f.path+L" — "+e.text);}
 }
-inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log,std::function<void(const Finding&,Journal&,Log)> stop=stopExact) {
+inline bool quarantineReviewed(const Finding& f,bool consent,Journal& j,Log log,std::function<void(const Finding&,Journal&,Log)> stop=stopExact,const std::vector<HashRule>& catalog=rules()) {
     if(!consent){log(L"用户保留核查文件："+f.path);return false;}
     bool allowed=(f.review==ReviewKind::HighRiskName && suspicious(f.path) && highRiskOnHost(f.path)) || (f.review==ReviewKind::ResidualName && residualName(f.path)) ||
-        (f.review==ReviewKind::LinkVariant && extension(f.path,L".lnk") && size(f.path)<=1048576 && variantWormLink(f.path));
+        (f.review==ReviewKind::LinkVariant && extension(f.path,L".lnk") && size(f.path)<=1048576 && variantWormLink(f.path)) ||
+        (f.review==ReviewKind::KnownHash && matchDigest(f.digest,catalog)!=nullptr);
     if(!allowed)throw Error{L"该线索不在可人工确认隔离范围"};
     noLinks(f.path);
     if(f.digest.empty() || size(f.path)>HASH_LIMIT || size(f.path)!=f.fileSize || hash(f.path)!=f.digest)throw Error{L"核查文件已变化或无法复核，请重新检查"};
     WIN32_FILE_ATTRIBUTE_DATA info{};if(!GetFileAttributesExW(xp(f.path).c_str(),GetFileExInfoStandard,&info))fail(L"读取核查元数据");
     if(CompareFileTime(&info.ftCreationTime,&f.created)!=0)throw Error{L"核查文件已替换，请重新检查"};
     j.add(L"用户逐项确认隔离",f.path,L"",f.reason);
-    if(f.review==ReviewKind::HighRiskName && stop)stop(f,j,log);
+    if((f.review==ReviewKind::HighRiskName || f.review==ReviewKind::KnownHash) && stop)stop(f,j,log);
     quarantine(f.path,f.digest,j);log(L"已隔离："+f.path);return true;
 }
 inline bool postCleanReview(const std::vector<Finding>& items,const std::vector<S>& processPaths,Log log,std::function<bool(const S&)> present=exists) {
@@ -410,19 +420,20 @@ inline S recoverySignature(const S& p, size_t& count, int depth=0) {
     }
     return sig;
 }
-inline Plan plan(const S& root0,const S& container0,bool test=false) {
+inline Plan plan(const S& root0,const S& container0,bool test=false,bool allowPartial=false) {
     S root=full(root0),container=full(container0); noLinks(root);noLinks(container);
     if(!allowedContainer(root,container) || !(attr(container)&FILE_ATTRIBUTE_DIRECTORY) || systemName(container))throw Error{L"只允许根目录容器或 .Trashes 下一级数字目录"};
     if(!test) {
         if(root.size()!=3 || GetDriveTypeW(root.c_str())!=DRIVE_REMOVABLE)throw Error{L"仅允许可移动磁盘"};
         wchar_t windows[MAX_PATH];GetWindowsDirectoryW(windows,MAX_PATH);if(towlower(windows[0])==towlower(root[0]))throw Error{L"拒绝系统盘"};
     }
-    Plan p{root,container,volume(root),{}};std::set<S> reserved;size_t count=0;
+    Plan p{root,container,volume(root),{}, {},allowPartial};std::set<S> reserved;size_t count=0;
     for(const auto& e:list(container)) {
         noLinks(e.path);
-        if(!(e.attrs&FILE_ATTRIBUTE_DIRECTORY) && (riskyExtension(e.path) || suspicious(e.path)))continue;
-        auto signature=recoverySignature(e.path,count);
-        p.items.push_back({e.path,unique(join(root,name(e.path)),reserved),signature,e.attrs});
+        if(!(e.attrs&FILE_ATTRIBUTE_DIRECTORY) && (riskyExtension(e.path) || suspicious(e.path))){p.skipped.push_back(e.path+L" — 程序、脚本或快捷方式保留原处");continue;}
+        try{auto signature=recoverySignature(e.path,count);
+            p.items.push_back({e.path,unique(join(root,name(e.path)),reserved),signature,e.attrs});
+        }catch(const Error& error){if(!allowPartial)throw;p.skipped.push_back(e.path+L" — "+error.text);}
     }
     return p;
 }
@@ -462,14 +473,15 @@ inline bool deleteEmptyContainer(const Plan& p,bool consent,Journal& j,bool test
     if(!GetFileInformationByHandle(h.h,&info))fail(L"复核空容器");
     if(!(info.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) || (info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT) || info.dwVolumeSerialNumber!=p.serial || !list(p.container).empty())throw Error{L"空容器复核失败，拒绝删除"};
     j.add(L"删除空容器准备",p.container,L"",L"已复核为空；仅操作当前目录句柄");
-    // Windows atomically rejects directory disposition if children appeared. No recursive removal.
+    // FileDispositionInfo rejects nonempty directories; no recursive removal. Race tests do not prove all filesystem behavior.
     FILE_DISPOSITION_INFO disposition{TRUE};
     if(!SetFileInformationByHandle(h.h,FileDispositionInfo,&disposition,sizeof(disposition)))fail(L"删除空容器");
     j.add(L"删除空容器完成",p.container,L"",L"没有递归删除内容");return true;
 }
-inline void recover(const Plan& p,Journal& j,Log log,bool test=false) {
-    auto fresh=enhanced::plan(p.root,p.container,test);
-    if(fresh.serial!=p.serial || fresh.items.size()!=p.items.size())throw Error{L"磁盘或目录已变化，请重新预览"};
+inline void recover(const Plan& p,Journal& j,Log log,bool test=false,const RecoveryContext* context=nullptr) {
+    if(!test){if(!context)throw Error{L"恢复缺少有效的检查与处理记录"};requireContext(*context,p.root,p.serial);}
+    auto fresh=enhanced::plan(p.root,p.container,test,p.partial);
+    if(fresh.serial!=p.serial || fresh.items.size()!=p.items.size() || fresh.skipped!=p.skipped)throw Error{L"磁盘或目录已变化，请重新预览"};
     for(size_t i=0;i<p.items.size();++i)if(!same(fresh.items[i].dest,p.items[i].dest) || fresh.items[i].signature!=p.items[i].signature)throw Error{L"目录内容已变化，请重新预览"};
     for(const auto& m:p.items) {
         noLinks(p.root);size_t count=0;

@@ -1,0 +1,58 @@
+PASS paged host limit does not consume independent USB budget
+PASS resume continues without rereading completed files
+PASS resumed progress count is monotonic
+PASS resumed progress count is monotonic
+PASS resumed progress count is monotonic
+PASS resumed progress count is monotonic
+PASS resumed progress count is monotonic
+PASS all pages enumerate each distinct file once
+PASS complete selected scope permits critical-ready state
+PASS stop before read retains resumable work
+PASS stopped scan can resume
+PASS quarantine subtree is not scanned
+PASS unreadable USB directory prevents recovery readiness
+PASS cancellable streaming hash matches normal SHA256
+PASS cancellation interrupts hashing at a block boundary
+PASS scan cancellation never removes source data
+PASS synthetic size and fingerprint match is confirmed
+PASS known hash missing catalog size has explicit review capability and snapshot
+PASS unisolated confirmed threat blocks recovery in engine
+PASS keeping a known malicious fingerprint cannot unlock normal recovery
+PASS unreviewed relevant residual requires a decision
+PASS explicitly retained uncertain residual does not masquerade as isolation
+PASS retention decision cannot survive changed file evidence
+PASS numeric filename alone does not block recovery
+PASS failed startup blocks recovery even after file leaves findings
+PASS successful retry replaces failed operation state
+PASS incomplete critical scan blocks recovery
+PASS wrong volume identity blocks recovery
+PASS structured treatment isolates verified file and runs exact associated hooks
+PASS startup failure survives successful file isolation
+PASS structured failure has unambiguous visible result
+PASS bounded repeated observations record clean snapshot
+PASS transient recurrence remains recorded after later absence
+PASS manual known-hash review requires explicit consent
+PASS manual known-hash isolation handles associated startup path
+PASS stale source never reaches host cleanup or deletion
+PASS shared NoDrives views produce one decision
+PASS distinct HKLM Run views are not merged just because bytes match
+PASS shared HKCU Run views are deduplicated
+PASS different shared snapshots are preserved for revalidation
+PASS persistence association uses exact file reference
+PASS substring persistence association is rejected
+PASS disabled persistence is not an active restart source
+PASS persistence cannot change without consent
+PASS shared service host is rejected before opening service manager for writes
+PASS legacy strict recovery still rejects nested executable
+PASS partial recovery isolates the blocked subtree without blocking unrelated documents
+PASS production engine recovery refuses missing workflow context
+PASS partial recovery preserves original blocked subtree and restores other documents
+PASS nonempty original container cannot be deleted after partial restore
+PASS numeric-only unknown remains diagnostic rather than name-based deletion
+PASS numeric-only refusal preserves source
+PASS unchecked duplicate cannot overwrite successful associated startup removal
+PASS unchecked duplicate cannot downgrade blocking startup failure to retained
+PASS top-level directory metadata consumes page budget without descending
+PASS engine revalidates retained files against actual disk before recovery
+PASS unreviewed startup settings cannot be silently omitted from recovery context
+TOTAL PASS 57

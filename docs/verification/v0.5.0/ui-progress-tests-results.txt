@@ -1,0 +1,19 @@
+PASS create real application controls
+PASS marquee stays visible during work
+PASS UI timer updates while worker scans files
+PASS current real file path and completed count reach controls
+PASS final summary retains actual file count
+PASS completion stops progress and clears stale path
+PASS progress text and bar do not overlap
+PASS recommended scope always includes extended locations
+PASS manual review is a visible independent entry point
+PASS scrollable completion checklist exposes network and credential instructions
+PASS scrollable result exposes unscanned locations
+PASS stop button requests cooperative cancellation without destroying worker UI
+PASS unified list returns explicit confirmation
+PASS confirmed defaults selected while uncertain entries default preserved
+PASS diagnostic-only row cannot be selected for destructive treatment
+PASS per-item choices survive unified list submission
+PASS review UI itself does not modify files
+PASS cancel exits the complete decision sheet without applying choices
+TOTAL PASS 18

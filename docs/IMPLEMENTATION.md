@@ -1,3 +1,7 @@
+# v0.4.0 历史实现记录
+
+本文记录旧版验收，v0.5.0 的最终流程和验证见 [FINAL-0.5.0.md](FINAL-0.5.0.md)。
+
 # 改动与验收记录
 
 以用户提供的《给 Codex 的改动任务书》为验收依据。配套 ANALYSIS.md 与 REVIEW-usb-recovery-enhanced.md 未随文件提供，未将其中未提供的内容视为已独立核实。
@@ -33,7 +37,7 @@
 
 - `enhanced_engine.hpp::requireRecoveryReady` 与 `main.cpp::doRestore`：要求成功检查当前所选 U 盘，并拦截仍未处理的 confirmed 项；隔离成功才从当前 Finding 中移除，失败项保留。
 - `makeTreeVisible`：移动后的用户目录和文件递归清除 HIDDEN/SYSTEM，保留其他属性，记录变更，继续遵守深度/项数及拒绝链接的约束。
-- `canDeleteEmptyContainer/deleteEmptyContainer`：仅允许当前卷的根目录 U+FFFF 空容器，单独确认并再次检查；通过目录句柄的 FileDispositionInfo 删除，Windows 在出现子项时原子拒绝。没有递归删除，也没有 RemoveDirectory 调用。
+- `canDeleteEmptyContainer/deleteEmptyContainer`：仅允许当前卷的根目录 U+FFFF 空容器，单独确认并再次检查；通过目录句柄的 FileDispositionInfo 删除，非空目录由 Windows 的目录删除语义拒绝；当时的测试未覆盖完整并发竞态。没有递归删除，也没有 RemoveDirectory 调用。
 - `main.cpp::offerDeleteEmpty`：仅空容器显示“删除空的 U+FFFF 文件夹”确认按钮；结果保留“恢复成功不等于清毒”。
 - 验证：`remediation-tests` 累计 35 项通过，本任务新增 12 项，含未处理项门禁、嵌套属性、无确认不删、新出现用户文件拒绝删、空容器删除、嵌套程序拒绝恢复。
 

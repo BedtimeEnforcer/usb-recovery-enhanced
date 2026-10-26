@@ -10,9 +10,19 @@ static void pump() {
     }
 }
 static S text(HWND h) { wchar_t b[32768]; GetWindowTextW(h,b,32768);return b; }
+static int passed=0;
 static void check(bool ok,const char* message) {
     if(!ok)throw Error{fromUtf8(message)};
-    std::cout<<"PASS "<<message<<std::endl;
+    ++passed;std::cout<<"PASS "<<message<<std::endl;
+}
+static bool reviewDefaults=false,reviewBlocked=false,cancelReview=false;
+static void CALLBACK reviewTimer(HWND,UINT,UINT_PTR timer,DWORD) {
+    HWND h=FindWindowW(L"UsbTreatmentList",nullptr);if(!h)return;KillTimer(nullptr,timer);
+    HWND list=GetDlgItem(h,1);
+    reviewDefaults=ListView_GetCheckState(list,0) && !ListView_GetCheckState(list,1) && !ListView_GetCheckState(list,2);
+    ListView_SetCheckState(list,1,TRUE);reviewBlocked=!ListView_GetCheckState(list,1);
+    ListView_SetCheckState(list,2,TRUE);
+    PostMessageW(h,WM_COMMAND,cancelReview?3:2,0);
 }
 int wmain(int argc,wchar_t** argv) {
     try {
@@ -70,9 +80,9 @@ int wmain(int argc,wchar_t** argv) {
         check(!scanning && !IsWindowVisible(progressBox) && !IsWindowVisible(scanPathBox),"completion stops progress and clears stale path");
         RECT pathRect,barRect,client;GetWindowRect(scanPathBox,&pathRect);GetWindowRect(progressBox,&barRect);GetClientRect(window,&client);
         check(pathRect.bottom<=barRect.top && client.bottom>0,"progress text and bar do not overlap");
-        HWND extended=GetDlgItem(window,ID_EXPANDED),review=GetDlgItem(window,ID_REVIEW);
-        check(extended && SendMessageW(extended,BM_GETCHECK,0,0)==BST_UNCHECKED && IsWindowEnabled(extended),"extended scope is opt-in and available after work");
-        check(review && IsWindowVisible(review),"manual review is a visible independent entry point");
+        HWND extended=GetDlgItem(window,ID_EXPANDED),reviewButton=GetDlgItem(window,ID_REVIEW);
+        check(extended && text(extended).find(L"推荐检查")!=S::npos && IsWindowVisible(extended),"recommended scope always includes extended locations");
+        check(reviewButton && IsWindowVisible(reviewButton),"manual review is a visible independent entry point");
         showTextReport(L"fixture aftercare",aftercareChecklist());
         HWND aftercare=FindWindowW(L"UsbReviewReport",L"fixture aftercare");
         check(aftercare && text(GetDlgItem(aftercare,1)).find(L"UPnP")!=S::npos && text(GetDlgItem(aftercare,1)).find(L"新助记词")!=S::npos,"scrollable completion checklist exposes network and credential instructions");
@@ -81,7 +91,25 @@ int wmain(int argc,wchar_t** argv) {
         HWND scope=FindWindowW(L"UsbReviewReport",L"fixture scope");
         check(scope && text(GetDlgItem(scope,1)).find(L"未扫描位置")!=S::npos,"scrollable result exposes unscanned locations");
         DestroyWindow(scope);
+        startScanProgress();stopRequested=false;
+        SendMessageW(window,WM_COMMAND,ID_STOP,0);
+        check(stopRequested.load() && scanning,"stop button requests cooperative cancellation without destroying worker UI");
+        stopScanProgress();
+        ReviewWindow review;
+        Finding exact{join(root,L"file-0.txt"),L"",L"fixture",true,false};
+        Finding numeric{join(root,L"file-1.txt"),L"",L"numeric diagnostic",false,false,ReviewKind::NumericTemp};
+        Finding suspect{join(root,L"file-2.txt"),L"",L"reviewable fixture",false,false,ReviewKind::ResidualName};
+        review.rows={{0,exact,{},true,true},{0,numeric,{},false,false},{0,suspect,{},true,false}};
+        SetTimer(nullptr,0,200,reviewTimer);
+        check(chooseTreatment(review),"unified list returns explicit confirmation");
+        check(reviewDefaults,"confirmed defaults selected while uncertain entries default preserved");
+        check(reviewBlocked && !review.rows[1].selected,"diagnostic-only row cannot be selected for destructive treatment");
+        check(review.rows[0].selected && review.rows[2].selected,"per-item choices survive unified list submission");
+        check(exists(exact.path) && exists(suspect.path),"review UI itself does not modify files");
+        ReviewWindow cancellation;cancellation.rows=review.rows;cancelReview=true;
+        SetTimer(nullptr,0,200,reviewTimer);
+        check(!chooseTreatment(cancellation),"cancel exits the complete decision sheet without applying choices");
         DestroyWindow(window);
-        std::cout<<"TOTAL PASS 11"<<std::endl;return 0;
+        std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
     }catch(const Error& e){std::cerr<<utf8(e.text)<<std::endl;return 1;}
 }

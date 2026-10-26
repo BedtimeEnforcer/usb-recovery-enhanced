@@ -3,7 +3,7 @@
 
 namespace enhanced {
 using namespace usb;
-const wchar_t* const RULE_VERSION = L"2026.10.25.2";
+const wchar_t* const RULE_VERSION = L"2026.10.25.3";
 struct HashRule { S digest, family, source, solution; uint64_t expectedSize=0; };
 inline const std::vector<HashRule>& rules() {
     static const S mandiant = L"https://cloud.google.com/blog/topics/threat-intelligence/infected-usb-steal-secrets";
@@ -39,13 +39,13 @@ inline bool ruleSizeMatches(const HashRule& rule,uint64_t actual) {return rule.e
 inline S rulesText() {
     S text = L"U 盘修复助手 · 加强版\r\n规则版本：" + S(RULE_VERSION) + L"\r\n\r\n";
     text += L"内置 15 条 SHA-256 精确指纹（包含原版 1 条），另有原版精确 LNK 规则及 7 类可疑组合检查。\r\n";
-    text += L"只有已登记大小且大小/SHA-256 同时匹配的规则、或原版特定 LNK 支持确认后隔离。其余 14 条公开 SHA-256 未登记大小，仅提示复核。组合特征仅提示需核查，不能据此确定家族或保证已处理所有驻留。尚未进行加强版虚拟机真实感染验收。\r\n\r\n";
-    text += L"【检查与处置范围】\r\n电脑默认：Windows 和当前用户目录顶层、进程映像、Run/RunOnce 绝对本地引用；递归 Temp、Roaming/Local/Startup、ProgramData、Public。可选扩展检查 Windows 子目录、当前用户桌面/文档/下载和 Program Files；结果显示本次模式、未检查位置和访问限制。\r\n";
-    text += L"U 盘：仅所选可移动卷，有界递归。不读取网络引用、重解析目录、系统回收站和系统卷信息；本机递归和所选 U 盘各最多 200000 项、深度 128。哈希文件上限 64 MiB；内容/LNK 解析上限 1 MiB；超限与访问失败会报告。压缩包内部、其他用户和内存注入不在覆盖范围。\r\n";
+    text += L"只有已登记大小且大小/SHA-256 同时匹配的规则、或原版特定 LNK 支持确认后隔离。其余 14 条公开 SHA-256 未登记大小，命中后可明确勾选、复核并备份隔离，不自动选中。组合特征仅提示需核查，不能据此确定家族或保证已处理所有驻留。尚未进行加强版虚拟机真实感染验收。\r\n\r\n";
+    text += L"【检查与处置范围】\r\n推荐检查：进程映像、Run/RunOnce 绝对本地引用、Temp、Roaming/Local/Startup、ProgramData、Public、Windows 子目录、当前用户桌面/文档/下载及 Program Files；分组轮流检查，达到本轮上限或停止后可继续。\r\n";
+    text += L"U 盘：仅所选可移动卷，有界递归。不读取网络引用、重解析目录、系统回收站和系统卷信息；每轮电脑和所选 U 盘各最多 200000 项，继续检查不从头重扫、深度 128。哈希文件上限 64 MiB；内容/LNK 解析上限 1 MiB；超限与访问失败会报告。压缩包内部、其他用户和内存注入不在覆盖范围。\r\n";
     text += L"精确命中：复核规则及当前哈希；只终止映像路径和哈希均匹配的恶意进程；备份移除明确引用该文件的 Run/RunOnce；校验备份后隔离。不会因启动项出现 wscript/rundll32 等系统程序名就终止或隔离它。\r\n";
-    text += L"DLL/内存/侧载：不会凭进程名称结束正常程序，不自动清理服务或计划任务；报告后仍需查杀软件复核，重启再检查。隔离失败保留错误记录。\r\n";
-    text += L"恢复：支持根目录隐藏容器和 .Trashes 下一级数字目录；跳过顶层可执行文件/脚本/快捷方式，拒绝含此类嵌套入口的目录。保留重名双方。先检查所选 U 盘，未处理已确认项必须先隔离；递归恢复可见属性；仅提供已复核为空的 U+FFFF 文件夹删除确认。恢复成功不等于清毒。\r\n\r\n";
-    text += L"人工核查：tbtnds.dat/tbtcmds.dat 名称残留、可疑路径同名 EXE、cmd 诱饵变体逐项确认；Temp 纯数字 EXE 和其他组合线索只提示。Windows Settings 启动值与 NoDrives 策略须逐项确认、备份原值后处理；自设策略应保留。\r\n隔离区是明文备份，并非加密容器。网络、剪贴板和重启复查步骤见人工核查中的善后清单。\r\n\r\n";
+    text += L"DLL/内存/侧载：不会凭进程名称结束正常程序。检查服务和计划任务的明确本地引用；隔离所选文件时，仅对经快照复核的直接关联项备份并停用，不删除服务或任务。共享宿主服务、相对/编码命令、COM 任务和内存注入不自动处理，重启后仍需复查。\r\n";
+    text += L"恢复：支持根目录隐藏容器和 .Trashes 下一级数字目录；程序/脚本/快捷方式及含此类嵌套入口的目录保留原处，其他符合条件的项目可恢复。保留重名双方。引擎要求关键范围检查结束、已知病毒已隔离、相关高可疑项已明确处理或保留、关联处理无未解决失败；保留项变化则重新检查。递归恢复可见属性；仅提供已复核为空的 U+FFFF 文件夹删除确认。恢复成功不等于清毒。\r\n\r\n";
+    text += L"查杀与修复：tbtnds.dat/tbtcmds.dat 名称残留、可疑路径同名 EXE、cmd 诱饵变体逐项确认；Temp 纯数字 EXE 和其他组合线索只提示。Windows Settings 启动值与 NoDrives 策略须逐项确认、备份原值后处理；自设策略应保留。\r\n隔离区是明文备份，并非加密容器。网络、剪贴板和重启复查步骤见处理结果中的善后清单。\r\n\r\n";
     text += L"【组合特征与处理方案】\r\n";
     text += L"1. Bondat 风格：LNK 引用 .Trashes 中的 JS/JSE；先复查电脑启动文件夹/脚本，再核查 .Trashes 下数字目录中的原文件。正常 macOS .Trashes 本身不判毒。\r\n来源：https://www.microsoft.com/en-us/wdsi/threats/malware-encyclopedia-description?Name=Worm%3AJS%2FBondat\r\n";
     text += L"2. PlugX 风格：LNK 同时出现 U+00A0、RECYCLER.BIN 和载荷/侧载程序引用；保留 Unicode 路径，核查侧载 DLL 和计划任务。正常 x32dbg、Dism 等程序不能按名称删除。\r\n来源：https://unit42.paloaltonetworks.com/plugx-variants-in-usbs/\r\n";

@@ -1,0 +1,8 @@
+Version: 0.5.0
+Compiler: GCC 16.2.0 / MinGW-w64
+Target: x86 PE, Windows subsystem 6.1
+Regression assertions: 228 passed
+Actual EXE smoke: startup guide, empty-treatment prompt, collapsed/expanded log, catalog, normal exit passed
+Real infection test: not performed; reserved for user VM acceptance
+No malware executed. No live service, task or user-policy changes in tests.
+SHA256: E27ABD898CC903303F3CADC433B656A6C852A78DE66E058F9708048ACFD771FB
