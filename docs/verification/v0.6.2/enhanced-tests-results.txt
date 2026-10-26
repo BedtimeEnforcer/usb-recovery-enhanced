@@ -1,0 +1,58 @@
+PASS create isolated registry fixture
+PASS already absent startup value is not a failure
+PASS write isolated registry fixture
+PASS changed startup value is preserved with precise reason
+PASS write isolated registry fixture
+PASS matching startup value is removed after backup
+PASS already absent startup key is not a failure
+PASS registry errors distinguish permissions and retain other codes
+PASS 15 unique well-formed sourced fingerprints
+PASS catalog lookup accepts lowercase SHA256
+PASS unknown and malformed hashes rejected
+PASS offline catalog includes provenance and validation limits
+PASS exact matching works for new sizes and arbitrary extensions
+PASS same-name unknown executable is never confirmed
+PASS normal document has no finding
+PASS double extension is advisory only
+PASS bounded parser reads Unicode LinkInfo target and arguments
+PASS remote msiexec shortcut produces advisory
+PASS normal application shortcut preserved
+PASS Bondat-style script path recognized without executing target
+PASS ordinary JavaScript reference alone is not a worm
+PASS PlugX-style Unicode path combination recognized
+PASS recycler folder name alone is not malware
+PASS type-cmd shortcut pipeline is advisory
+PASS truncated LinkInfo rejected
+PASS out-of-range LinkInfo offset rejected
+PASS truncated StringData rejected
+PASS non-LNK data is not parsed as a command
+PASS new shortcut heuristic cannot enable automatic isolation
+PASS USB script requires multiple independent propagation clues
+PASS UTF16 script content supported
+PASS UTF8 BOM decoded correctly
+PASS script clues stay unconfirmed
+PASS Autorun script entry detected
+PASS legitimate Autorun icon and unrelated sections preserved
+PASS commented Autorun command ignored
+PASS Autorun shell command key supported
+PASS FROZENHILL PE and configuration combination recognized
+PASS configuration text alone without PE is not matched
+PASS DLL Run reference uses full path rather than substring
+PASS rundll32 persistence supports nonstandard payload extensions
+PASS relative and UNC command paths are not followed
+PASS quoted direct script persistence path supported
+PASS new-family cleanup verifies quarantine backup before removal
+PASS startup failure and incomplete family remediation remain visible after isolation
+PASS forged confirmed flag cannot bypass built-in rule validation
+PASS changed file is retained
+PASS unconfirmed advisory never invokes host cleanup
+PASS Bondat-style nested container recovery skips script and preserves conflicts
+PASS nested recovery preserves script and restores only user document
+PASS production recovery rejects synthetic non-volume root
+PASS arbitrary nested recovery container rejected
+PASS numeric Trashes container appears in recovery choices
+PASS nested executable prevents unsafe directory restoration
+PASS stale enhanced recovery preview rejected
+PASS stale preview rejection preserves original files
+PASS bounded traversal stops before processing beyond limit
+TOTAL PASS 57

@@ -389,8 +389,13 @@ inline void clean(const std::vector<Finding>& items, Log log) {
 }
 
 inline bool numeric(const S& s) { if(s.empty() || s.size()>10)return false; for(auto c:s)if(c<L'0'||c>L'9')return false; return true; }
+inline bool specialRecoveryContainer(const S& root,const S& container) {
+    if(same(root,container) || !underPath(container,root))return false;
+    for(S path=container;!same(path,root);path=parent(path))if(systemName(path))return false;
+    return name(container)==L"\uffff" || (lower(name(parent(container)))==L".trashes" && numeric(name(container)));
+}
 inline bool allowedContainer(const S& root,const S& container) {
-    return same(parent(container),root) || (same(parent(parent(container)),root) && lower(name(parent(container)))==L".trashes" && numeric(name(container)));
+    return same(parent(container),root) || specialRecoveryContainer(root,container);
 }
 inline std::vector<S> recoveryFolders(const S& root) {
     std::vector<S> result;
@@ -405,33 +410,42 @@ inline std::vector<S> recoveryFolders(const S& root) {
     }
     return result;
 }
-inline S recoverySignature(const S& p, size_t& count, int depth=0) {
+inline S recoverySignature(const S& p, size_t& count, int depth=0,bool programData=false) {
     if(depth>128 || ++count>ENTRY_LIMIT)throw Error{L"恢复目录过深或项目过多"};
     noLinks(p); DWORD a=attr(p); S sig=quote(p)+L":"+num(a);
     if(a&FILE_ATTRIBUTE_DIRECTORY) {
-        for(const auto& e:list(p))sig+=recoverySignature(e.path,count,depth+1);
+        for(const auto& e:list(p))sig+=recoverySignature(e.path,count,depth+1,programData);
     } else {
-        if(riskyExtension(p) || suspicious(p))throw Error{L"目录含可执行文件、脚本或快捷方式，已停止恢复，请先人工核查："+p};
+        if((!programData && riskyExtension(p)) || suspicious(p))throw Error{L"目录含待核查文件，暂未恢复："+p};
         auto n=size(p);
-        if(n<=HASH_LIMIT && matchDigest(hash(p)))throw Error{L"目录内有精确命中载荷，请先隔离："+p};
+        if(n<=HASH_LIMIT) {
+            auto digest=hash(p);
+            if(matchDigest(digest))throw Error{L"目录内有精确命中载荷，请先隔离："+p};
+            if(programData)sig+=L":"+digest;
+        }
+        if(programData && n<=1048576) {
+            if(extension(p,L".lnk") && (wormLink(p) || !linkHint(parseLink(bytes(p))).empty()))throw Error{L"目录内有可疑快捷方式，暂未恢复："+p};
+            if((extension(p,L".vbs") || extension(p,L".vbe") || extension(p,L".js") || extension(p,L".jse") || extension(p,L".wsf") || extension(p,L".ps1")) && scriptHint(decodeText(bytes(p))))throw Error{L"目录内有可疑脚本，暂未恢复："+p};
+        }
         if(lower(name(p))==L"autorun.inf" && n<=1048576 && autorunHint(decodeText(bytes(p))))throw Error{L"目录内有可疑 Autorun 入口，请先核查："+p};
         WIN32_FILE_ATTRIBUTE_DATA d; if(!GetFileAttributesExW(xp(p).c_str(),GetFileExInfoStandard,&d))fail(L"读取恢复元数据");
         sig+=L":"+num(n)+L":"+num(((uint64_t)d.ftLastWriteTime.dwHighDateTime<<32)|d.ftLastWriteTime.dwLowDateTime);
     }
     return sig;
 }
-inline Plan plan(const S& root0,const S& container0,bool test=false,bool allowPartial=false) {
+inline Plan plan(const S& root0,const S& container0,bool test=false,bool allowPartial=false,bool programData=false) {
     S root=full(root0),container=full(container0); noLinks(root);noLinks(container);
-    if(!allowedContainer(root,container) || !(attr(container)&FILE_ATTRIBUTE_DIRECTORY) || systemName(container))throw Error{L"只允许根目录容器或 .Trashes 下一级数字目录"};
+    if(!allowedContainer(root,container) || !(attr(container)&FILE_ATTRIBUTE_DIRECTORY) || systemName(container))throw Error{L"仅允许 U 盘根目录或识别出的隐藏容器"};
+    if(programData && !specialRecoveryContainer(root,container))throw Error{L"程序文件只随已识别的隐藏容器恢复"};
     if(!test) {
         if(root.size()!=3 || GetDriveTypeW(root.c_str())!=DRIVE_REMOVABLE)throw Error{L"仅允许可移动磁盘"};
         wchar_t windows[MAX_PATH];GetWindowsDirectoryW(windows,MAX_PATH);if(towlower(windows[0])==towlower(root[0]))throw Error{L"拒绝系统盘"};
     }
-    Plan p{root,container,volume(root),{}, {},allowPartial};std::set<S> reserved;size_t count=0;
+    Plan p{root,container,volume(root),{}, {},allowPartial,programData};std::set<S> reserved;size_t count=0;
     for(const auto& e:list(container)) {
         noLinks(e.path);
-        if(!(e.attrs&FILE_ATTRIBUTE_DIRECTORY) && (riskyExtension(e.path) || suspicious(e.path))){p.skipped.push_back(e.path+L" — 程序、脚本或快捷方式保留原处");continue;}
-        try{auto signature=recoverySignature(e.path,count);
+        if(!(e.attrs&FILE_ATTRIBUTE_DIRECTORY) && ((!programData && riskyExtension(e.path)) || suspicious(e.path))){p.skipped.push_back(e.path+L" — 待核查文件保留原处");continue;}
+        try{auto signature=recoverySignature(e.path,count,0,programData);
             p.items.push_back({e.path,unique(join(root,name(e.path)),reserved),signature,e.attrs});
         }catch(const Error& error){if(!allowPartial)throw;p.skipped.push_back(e.path+L" — "+error.text);}
     }
@@ -458,7 +472,7 @@ inline void makeTreeVisible(const S& path,Journal& j,size_t& count,int depth=0) 
 }
 inline bool canDeleteEmptyContainer(const Plan& p,bool test=false) {
     try {
-        if(name(p.container)!=L"\uffff" || !same(parent(p.container),p.root))return false;
+        if(name(p.container)!=L"\uffff" || !specialRecoveryContainer(p.root,p.container))return false;
         if(!test && (full(p.root).size()!=3 || GetDriveTypeW(p.root.c_str())!=DRIVE_REMOVABLE))return false;
         noLinks(p.root);noLinks(p.container);
         return volume(p.root)==p.serial && (attr(p.container)&FILE_ATTRIBUTE_DIRECTORY) && list(p.container).empty();
@@ -467,11 +481,16 @@ inline bool canDeleteEmptyContainer(const Plan& p,bool test=false) {
 inline bool deleteEmptyContainer(const Plan& p,bool consent,Journal& j,bool test=false) {
     if(!consent)return false;
     if(!canDeleteEmptyContainer(p,test))throw Error{L"目录非空、磁盘已变化或不是指定空容器，拒绝删除"};
-    Handle h(CreateFileW(xp(p.container).c_str(),DELETE|FILE_READ_ATTRIBUTES,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
+    Handle h(CreateFileW(xp(p.container).c_str(),DELETE|FILE_READ_ATTRIBUTES|FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
     if(h.h==INVALID_HANDLE_VALUE)fail(L"锁定空容器");
     BY_HANDLE_FILE_INFORMATION info{};
     if(!GetFileInformationByHandle(h.h,&info))fail(L"复核空容器");
     if(!(info.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) || (info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT) || info.dwVolumeSerialNumber!=p.serial || !list(p.container).empty())throw Error{L"空容器复核失败，拒绝删除"};
+    if(info.dwFileAttributes&FILE_ATTRIBUTE_READONLY) {
+        j.add(L"移除空容器只读属性",p.container,L"",num(info.dwFileAttributes));
+        FILE_BASIC_INFO basic{};basic.FileAttributes=info.dwFileAttributes&~FILE_ATTRIBUTE_READONLY;
+        if(!SetFileInformationByHandle(h.h,FileBasicInfo,&basic,sizeof(basic)))fail(L"恢复空容器属性");
+    }
     j.add(L"删除空容器准备",p.container,L"",L"已复核为空；仅操作当前目录句柄");
     // FileDispositionInfo rejects nonempty directories; no recursive removal. Race tests do not prove all filesystem behavior.
     FILE_DISPOSITION_INFO disposition{TRUE};
@@ -480,12 +499,12 @@ inline bool deleteEmptyContainer(const Plan& p,bool consent,Journal& j,bool test
 }
 inline void recover(const Plan& p,Journal& j,Log log,bool test=false,const RecoveryContext* context=nullptr) {
     if(!test){if(!context)throw Error{L"恢复缺少有效的检查与处理记录"};requireContext(*context,p.root,p.serial);}
-    auto fresh=enhanced::plan(p.root,p.container,test,p.partial);
+    auto fresh=enhanced::plan(p.root,p.container,test,p.partial,p.programData);
     if(fresh.serial!=p.serial || fresh.items.size()!=p.items.size() || fresh.skipped!=p.skipped)throw Error{L"磁盘或目录已变化，请重新预览"};
     for(size_t i=0;i<p.items.size();++i)if(!same(fresh.items[i].dest,p.items[i].dest) || fresh.items[i].signature!=p.items[i].signature)throw Error{L"目录内容已变化，请重新预览"};
     for(const auto& m:p.items) {
         noLinks(p.root);size_t count=0;
-        if(volume(p.root)!=p.serial || recoverySignature(m.source,count)!=m.signature)throw Error{L"恢复前复核失败"};
+        if(volume(p.root)!=p.serial || recoverySignature(m.source,count,0,p.programData)!=m.signature)throw Error{L"恢复前复核失败"};
         if(exists(m.dest))throw Error{L"目标已存在，拒绝覆盖"};
         j.add(L"移动准备",m.source,m.dest,num(m.attrs));
         if(!MoveFileExW(xp(m.source).c_str(),xp(m.dest).c_str(),MOVEFILE_WRITE_THROUGH))fail(L"恢复移动文件");
@@ -493,6 +512,6 @@ inline void recover(const Plan& p,Journal& j,Log log,bool test=false,const Recov
         size_t visibleCount=0;makeTreeVisible(m.dest,j,visibleCount);
         log(L"已恢复："+m.dest);
     }
-    log(L"恢复完成；被跳过的可执行文件和脚本保留原处。记录："+j.dir);
+    log(L"恢复完成；待核查内容保留原处。记录："+j.dir);
 }
 } // namespace enhanced

@@ -1,0 +1,18 @@
+PASS full-mode restoration accepts ordinary application files after scan
+PASS application containing DLL and script moves intact to USB root
+PASS restored application bytes remain unchanged
+PASS direct executable is restored and colliding original retained
+PASS automatic restoration moves every tested extension including scripts installers shortcuts and unknown formats
+PASS nested wrapper data reaches USB root
+PASS nested wrappers preserve both colliding documents
+PASS all verified empty wrappers including nested and read-only wrappers are removed
+PASS ordinary parent directories are preserved
+PASS restored application is visible
+PASS manual recovery keeps its existing strict program policy
+PASS program data changed after preview is rejected without moving it
+PASS changed program source remains intact
+PASS suspicious program names remain blocked and are never deleted
+PASS nonempty wrapper is never deleted
+PASS program-data recovery cannot flatten an ordinary user folder
+PASS nested wrapper outside selected disk is rejected
+TOTAL PASS 17

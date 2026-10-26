@@ -1,0 +1,65 @@
+PASS P0-1 residual names require explicit review rather than forged confirmation
+PASS P0-1 numeric Temp exe includes size hash and creation time without automatic isolation
+PASS P0-1 numeric exe outside Temp is not a Temp finding
+PASS P0-1 residual remains without per-item consent
+PASS P0-1 consented residual quarantine verifies backup before removal
+PASS P0-1 numeric-only unknown executable cannot enter reviewed quarantine
+PASS P0-1 NoDrives snapshot preserves original value for display
+PASS P0-1 policy survives without consent
+PASS P0-1 changed policy is retained instead of deleting a stale snapshot
+PASS P0-1 consented policy is removed from disposable test key
+PASS P0-1 registry backup records exact type and bytes before removal
+PASS P0-1 completion contains manual network checklist
+PASS P0-1 completion contains clipboard transfer and credential checklist
+PASS P0-2 orphan named startup remains visible without an existing target
+PASS P0-2 named startup is not deleted without consent
+PASS P0-2 startup deletion failure is first with hive key value reason and rescan instruction
+PASS P0-2 consent removes backed-up orphan named startup
+PASS P0-2 indirect named startup is listed for confirmation
+PASS P0-2 direct confirmed-file reference still matches
+PASS P0-3 expanded tree traversal detects harmless custom fingerprint in System32 fixture
+PASS P0-3 both modes list actual scope and blind spots
+PASS P0-3 scan result retains scope and access failures in expandable details
+PASS P0-3 exhausted budget records roots that were not scanned
+PASS P0-4 recovery requires completed selected-drive scan
+PASS P0-4 outstanding confirmed file blocks recovery
+PASS P0-4 unconfirmed advisory does not forge a confirmed blocker
+PASS P0-4 nested directories and user files all become visible
+PASS P0-4 empty UFFFF container offers cleanup
+PASS P0-4 empty folder remains without explicit cleanup consent
+PASS P0-4 nonempty container does not offer enabled deletion
+PASS P0-4 content added after offer prevents deletion
+PASS P0-4 newly appeared user file is preserved
+PASS P0-4 explicit empty-only deletion succeeds
+PASS P0-4 disposition removes only verified empty container
+PASS P0-4 nested executable still rejects directory recovery
+PASS P1-5 original lure requires cmd or comspec target and remains confirmed
+PASS P1-5 appended-argument lure becomes high suspicious review candidate
+PASS P1-5 non-cmd and ordinary shortcuts are not lure matches
+PASS P1-5 drive-prefixed lure is review-only
+PASS P1-5 variant shortcut retained without consent
+PASS P1-5 explicit reviewed shortcut quarantine succeeds without weakening cleanOne
+PASS P1-6 unknown same-name payload in Temp is high suspicious rather than confirmed
+PASS P1-6 same name outside configured risky roots remains advisory only
+PASS P1-6 no process or file action without per-item consent
+PASS P1-6 reviewed stop callback is limited to confirmed user-selected path
+PASS P1-6 consented high-risk file uses revalidation and mocked exact process action
+PASS P1-6 ordinary same-name advisory cannot enter manual isolation
+PASS P1-6 file and process revival snapshot produces warning and reboot rescan steps
+PASS P1-6 absent file and process do not invent a revival
+PASS P1-7 guide describes clipboard replacement and password or seed replacement
+PASS P1-7 guide removes unsupported exfiltration claim while retaining creator
+PASS P2-8 completion preserves coverage limitations without claiming clean system
+PASS P2-8 rule export retains unvalidated status and recommended scope
+PASS P2-9 built-in original fingerprint enforces exact registered size
+PASS P2-9 hash without registered size is advisory rather than automatic isolation
+PASS P2-9 forged confirmation cannot bypass missing registered size
+PASS P2-9 directory enumeration stops after budget plus one sentinel
+PASS P2-9 recovery rejects a drive with a different scan-time serial
+PASS P2-9 registry backup write failure aborts removal
+PASS P2-9 policy original remains when backup cannot be saved
+PASS P2-9 independent named-value read preserves even non-string original bytes
+PASS P2-9 host budget exhaustion does not consume independent selected USB budget
+PASS P2-9 result retains budget-exhaustion notice even after many access failures
+PASS P2-9 explicit scan root inside excluded quarantine tree is never traversed
+TOTAL PASS 64

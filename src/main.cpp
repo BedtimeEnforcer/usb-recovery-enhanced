@@ -70,8 +70,8 @@ static void renderScanProgress() {
     S path = scanPath; size_t checked = scanChecked;ULONGLONG heartbeat=lastProgressAt;
     ReleaseSRWLockShared(&scanLock);
     auto seconds = (GetTickCount64() - scanStarted) / 1000;
-    S text = L"正在检查 · 已检查 " + num(checked) + L" 个文件 · 用时 " + num(seconds / 60) + L" 分 " + num(seconds % 60) + L" 秒";
-    if(GetTickCount64()-heartbeat>15000)text+=L" · 当前读取较慢，可停止后继续";
+    S text = L"正在处理 · 已检查 " + num(checked) + L" 个文件 · 用时 " + num(seconds / 60) + L" 分 " + num(seconds % 60) + L" 秒";
+    if(GetTickCount64()-heartbeat>15000)text+=L" · 当前读取较慢";
     SetWindowTextW(statusBox, text.c_str());
     SetWindowTextW(scanPathBox, (L"当前位置：" + path).c_str());
 }
@@ -148,7 +148,9 @@ static void paintAll(HDC dc, const RECT& client)
     FillRect(dc, &client, bg);
     DeleteObject(bg);
 
+#ifndef USB_ENHANCED
     fillRound(dc, rcCard1, PX(12), C_CARD, C_BORDER);
+#endif
     fillRound(dc, rcCard2, PX(12), C_CARD, C_BORDER);
 
     if (appIcon40)
@@ -156,25 +158,21 @@ static void paintAll(HDC dc, const RECT& client)
 
 #ifdef USB_ENHANCED
     drawTextAt(dc, L"U 盘修复助手", rcTitle, titleFont, C_TEXT, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    drawTextAt(dc, L"多类威胁检查 · 安全隔离 · 隐藏文件恢复", rcSub, smallFont, C_SUB, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    drawTextAt(dc, L"一键扫描、清理病毒、恢复隐藏文件", rcSub, smallFont, C_SUB, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     RECT badge{PX(270),PX(27),PX(336),PX(49)};
     fillRound(dc,badge,PX(6),RGB(229,239,255),RGB(229,239,255));
-    drawTextAt(dc,L"加强版",badge,smallFont,C_PRIMARY,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-    RECT heading{rcCard1.left+PX(20),rcCard1.top+PX(14),rcCard1.right-PX(20),rcCard1.top+PX(38)};
-    drawTextAt(dc,L"检查范围",heading,cardFont,C_TEXT,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-    RECT note=heading;note.left=rcCard1.left+PX(220);
-    drawTextAt(dc,L"选择 U 盘时，会同时检查电脑",note,smallFont,C_SUB,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
-    const wchar_t* titles[]={L"检查威胁",L"查杀与修复",L"恢复隐藏文件"};
-    const wchar_t* descriptions[]={L"检查电脑与所选 U 盘\n只检查，不更改文件",L"病毒与关联问题集中处理\n可疑文件由你确认",L"预览后恢复，重名保留\n先清理电脑传播源"};
-    for(int i=0;i<3;++i) {
+    drawTextAt(dc,L"v0.6.2",badge,smallFont,C_PRIMARY,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+    const wchar_t* titles[]={L"全盘杀毒",L"U盘专杀"};
+    const wchar_t* descriptions[]={L"电脑已中毒，或不确定是否中毒\n扫描电脑和全部 U 盘",L"电脑正常，仅 U 盘中毒\n选择 U 盘，支持多选"};
+    for(int i=0;i<2;++i) {
         const RECT& card=rcSteps[i];fillRound(dc,card,PX(12),C_CARD,C_BORDER);
-        RECT number{card.left+PX(18),card.top+PX(18),card.left+PX(50),card.top+PX(48)};
-        fillRound(dc,number,PX(7),RGB(236,243,255),RGB(236,243,255));
-        drawTextAt(dc,L"0"+num(i+1),number,btnFont,C_PRIMARY,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-        RECT title{card.left+PX(62),card.top+PX(18),card.right-PX(14),card.top+PX(48)};
-        drawTextAt(dc,titles[i],title,cardFont,C_TEXT,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-        RECT detail{card.left+PX(18),card.top+PX(57),card.right-PX(14),card.top+PX(96)};
+        RECT title{card.left+PX(24),card.top+PX(22),card.right-PX(24),card.top+PX(52)};
+        drawTextAt(dc,titles[i],title,titleFont,C_TEXT,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+        RECT detail{card.left+PX(24),card.top+PX(70),card.right-PX(24),card.top+PX(118)};
         drawTextAt(dc,descriptions[i],detail,font,C_SUB,DT_LEFT|DT_TOP);
+        if(i==0){RECT badge{card.right-PX(82),card.top+PX(26),card.right-PX(24),card.top+PX(50)};
+            fillRound(dc,badge,PX(6),RGB(229,239,255),RGB(229,239,255));
+            drawTextAt(dc,L"推荐",badge,smallFont,C_PRIMARY,DT_CENTER|DT_VCENTER|DT_SINGLELINE);}
     }
     drawTextAt(dc,L"操作记录",rcLogTitle,font,C_TEXT,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     RECT recordNote=rcLogTitle;recordNote.left+=PX(90);recordNote.right=rcCard2.right-PX(240);
@@ -183,8 +181,10 @@ static void paintAll(HDC dc, const RECT& client)
     drawTextAt(dc, APP_TITLE, rcTitle, titleFont, C_TEXT, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 #endif
 
+#ifndef USB_ENHANCED
     drawTextAt(dc, L"目标设备", rcLbl1, font, C_SUB, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     drawTextAt(dc, L"隐藏目录", rcLbl2, font, C_SUB, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+#endif
 #ifndef USB_ENHANCED
     drawTextAt(dc, L"运行日志", rcLogTitle, smallFont, C_MUTED, DT_LEFT | DT_TOP | DT_SINGLELINE);
 #endif
@@ -399,6 +399,7 @@ void doRestore() {
 }
 #ifdef USB_ENHANCED
 #include "workflow_ui.hpp"
+#include "one_click_ui.hpp"
 #endif
 void saveLog()
 {
@@ -423,7 +424,8 @@ void about()
 {
     S text = L"单文件、离线、无需 .NET 或外部 VC++ 运行库。\r\n面向 Win7 SP1（32/64 位）、Win10/11。\r\n标准版的历史测试不适用于当前加强版。\r\n\r\n电脑检查：进程映像、Run/RunOnce、常见落地目录顶层。\r\n不含全盘、服务、计划任务、其他用户和未知变种。\r\n恢复：移动所选隐藏目录内容至根目录；重名保留双方。\r\n日志与隔离：%LOCALAPPDATA%\\UsbRecovery。\r\n\r\n编译：GCC / MinGW-w64（MSVCRT）。\r\n第三方许可已嵌入 EXE，可用 --licenses <文件路径> 导出。\r\n程序未签名，不应关闭杀毒软件来运行。";
 #ifdef USB_ENHANCED
-    text = L"加强版 · 规则 " + S(enhanced::RULE_VERSION) + L"\r\n单文件、离线、无需 .NET 或外部 VC++ 运行库。\r\n编译目标 Win7 SP1 / Win10 / Win11（32 位程序）。\r\n尚未进行加强版虚拟机真实感染验收；原版已知样本曾在 Win7/Win10 验证。\r\n\r\n15 条精确指纹 + 原版精确 LNK + 7 类可疑组合。\r\n文件哈希上限 64 MiB，内容解析上限 1 MiB，遍历有上限。\r\n不覆盖压缩包内部、内存注入或全部驻留机制。\r\n\r\n查看“规则与处理方案”了解来源、步骤和范围。\r\n日志与隔离：%LOCALAPPDATA%\\UsbRecovery。\r\n程序未签名。第三方许可可用 --licenses <文件路径> 导出。";
+    text = L"v0.6.2\r\n全盘杀毒：扫描电脑和全部 U 盘。\r\nU盘专杀：仅处理勾选的 U 盘。\r\n两种方式均自动清理已知病毒、恢复隐藏文件。\r\n\r\n制作人李晓达，U盘经常被机务段病毒电脑感染，实在受不了，做了此工具，请传给需要的人。";
+
 #endif
     msgBox(L"说明与兼容性", APP_TITLE, text, TDCBF_OK_BUTTON, TD_INFORMATION_ICON);
 }
@@ -459,6 +461,13 @@ HWND control(const wchar_t* cls, const wchar_t* text, DWORD style, int id, int x
 
 void createChildren()
 {
+#ifdef USB_ENHANCED
+    control(L"BUTTON", L"全盘杀毒", WS_TABSTOP | BS_OWNERDRAW, ID_SCAN, 0,0,1,1);
+    control(L"BUTTON", L"U盘专杀", WS_TABSTOP | BS_OWNERDRAW, ID_CLEAN, 0,0,1,1);
+    control(L"BUTTON", L"导出日志", WS_TABSTOP | BS_OWNERDRAW, ID_SAVE, 0,0,1,1);
+    control(L"BUTTON", L"说明", WS_TABSTOP | BS_OWNERDRAW, ID_ABOUT, 0,0,1,1);
+    control(L"BUTTON", L"展开记录", WS_TABSTOP | BS_OWNERDRAW, ID_LOG_TOGGLE, 0,0,1,1);
+#else
     driveBox = control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, ID_DRIVE, 120, 120, 300, 260);
     control(L"BUTTON", L"刷新盘符", WS_TABSTOP | BS_OWNERDRAW, ID_REFRESH, 432, 118, 96, 28);
     folderBox = control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, ID_FOLDER, 120, 156, 520, 260);
@@ -467,12 +476,6 @@ void createChildren()
     control(L"BUTTON", L"3  恢复 U 盘", WS_TABSTOP | BS_OWNERDRAW, ID_RESTORE, 368, 206, 150, 40);
     control(L"BUTTON", L"导出日志", WS_TABSTOP | BS_OWNERDRAW, ID_SAVE, 720, 206, 96, 40);
     control(L"BUTTON", L"说明", WS_TABSTOP | BS_OWNERDRAW, ID_ABOUT, 828, 206, 96, 40);
-#ifdef USB_ENHANCED
-    control(L"BUTTON", L"规则与处理方案", WS_TABSTOP | BS_OWNERDRAW, ID_RULES, 748, 132, 160, 30);
-    control(L"BUTTON", L"展开记录", WS_TABSTOP | BS_OWNERDRAW, ID_LOG_TOGGLE, 748, 430, 88, 28);
-    SetWindowTextW(GetDlgItem(window,ID_SCAN),L"开始检查");
-    SetWindowTextW(GetDlgItem(window,ID_CLEAN),L"查杀与修复");
-    SetWindowTextW(GetDlgItem(window,ID_RESTORE),L"预览并恢复");
 #endif
     logBox = control(L"EDIT", L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_AUTOHSCROLL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP | WS_BORDER, 0, 44, 340, 900, 400);
     SendMessageW(logBox, EM_SETLIMITTEXT, 8 * 1024 * 1024, 0);
@@ -481,11 +484,9 @@ void createChildren()
     progressBox = control(PROGRESS_CLASSW, L"", PBS_MARQUEE, 111, 0, 0, 1, 1);
     scanPathBox = control(L"STATIC", L"", SS_PATHELLIPSIS | SS_NOPREFIX, 112, 0, 0, 1, 1);
     ShowWindow(progressBox, SW_HIDE); ShowWindow(scanPathBox, SW_HIDE);
-    statusBox = control(L"STATIC", L"就绪 · 检查不会修改被检查文件", 0, 0, 44, 700, 900, 24);
+    statusBox = control(L"STATIC", L"就绪 · 请选择查杀方式", 0, 0, 44, 700, 900, 24);
 #ifdef USB_ENHANCED
-    control(L"STATIC",L"推荐检查：电脑常见位置、系统目录、用户文件、程序目录与所选 U 盘",SS_LEFT,ID_EXPANDED,0,0,1,1);
-    EnableWindow(GetDlgItem(window,ID_EXPANDED),TRUE);
-    control(L"BUTTON",L"处理结果",BS_OWNERDRAW,ID_REVIEW,0,0,1,1);
+
     control(L"BUTTON",L"停止检查",BS_OWNERDRAW,ID_STOP,0,0,1,1);
     ShowWindow(GetDlgItem(window,ID_STOP),SW_HIDE);
     ShowWindow(logBox,SW_HIDE);
@@ -503,36 +504,26 @@ void layout()
     rcIcon={M,PX(24),M+PX(44),PX(68)};
     rcTitle={M+PX(58),PX(19),PX(262),PX(52)};
     rcSub={M+PX(58),PX(53),W-M,PX(76)};
-    rcCard1={M,PX(96),W-M,PX(232)};
-    const int fieldWidth=(W-2*M-PX(60))/2;
-    rcLbl1={M+PAD,PX(146),M+PAD+fieldWidth,PX(170)};
-    rcLbl2={M+PAD+fieldWidth+PX(20),PX(146),W-M-PAD,PX(170)};
-    MoveWindow(driveBox,rcLbl1.left,PX(176),fieldWidth-PX(92),PX(240),TRUE);
-    MoveWindow(GetDlgItem(window,ID_REFRESH),rcLbl1.left+fieldWidth-PX(82),PX(175),PX(82),PX(28),TRUE);
-    MoveWindow(folderBox,rcLbl2.left,PX(176),fieldWidth,PX(240),TRUE);
-    MoveWindow(GetDlgItem(window,ID_REVIEW),W-M-PX(334),PX(29),PX(92),PX(32),TRUE);
-    MoveWindow(GetDlgItem(window,ID_RULES),W-M-PX(232),PX(29),PX(150),PX(32),TRUE);
     MoveWindow(GetDlgItem(window,ID_ABOUT),W-M-PX(72),PX(29),PX(72),PX(32),TRUE);
-    MoveWindow(GetDlgItem(window,ID_EXPANDED),M+PAD,PX(207),W-2*M-2*PAD,PX(20),TRUE);
-    MoveWindow(GetDlgItem(window,ID_STOP),W-M-PX(102),PX(76),PX(102),PX(30),TRUE);
-    const int stepWidth=(W-2*M-PX(24))/3;
-    const int ids[]={ID_SCAN,ID_CLEAN,ID_RESTORE};
-    for(int i=0;i<3;++i) {
-        int x=M+i*(stepWidth+PX(12));
-        rcSteps[i]={x,PX(248),x+stepWidth,PX(408)};
-        MoveWindow(GetDlgItem(window,ids[i]),x+PX(18),PX(356),stepWidth-PX(36),PX(34),TRUE);
+    MoveWindow(GetDlgItem(window,ID_STOP),W-M-PX(82),H-PX(94),PX(82),PX(28),TRUE);
+    const int cardWidth=(W-2*M-PX(16))/2;
+    const int ids[]={ID_SCAN,ID_CLEAN};
+    for(int i=0;i<2;++i) {
+        int x=M+i*(cardWidth+PX(16));
+        rcSteps[i]={x,PX(104),x+cardWidth,PX(320)};
+        MoveWindow(GetDlgItem(window,ids[i]),x+PX(24),PX(256),cardWidth-PX(48),PX(40),TRUE);
     }
-    const int recordBottom=logExpanded?std::max(PX(480),std::min(H-PX(100),PX(660))):PX(474);
-    rcCard2={M,PX(424),W-M,recordBottom};
-    rcLogTitle={M+PAD,PX(435),W-M-PAD,PX(463)};
-    MoveWindow(GetDlgItem(window,ID_LOG_TOGGLE),W-M-PAD-PX(88),PX(435),PX(88),PX(28),TRUE);
-    MoveWindow(GetDlgItem(window,ID_SAVE),W-M-PAD-PX(186),PX(435),PX(88),PX(28),TRUE);
-    MoveWindow(logBox,M+PAD,PX(480),W-2*M-2*PAD,std::max(PX(1),recordBottom-PX(494)),TRUE);
+    const int recordBottom=logExpanded?std::max(PX(398),H-PX(112)):PX(386);
+    rcCard2={M,PX(336),W-M,recordBottom};
+    rcLogTitle={M+PAD,PX(347),W-M-PAD,PX(375)};
+    MoveWindow(GetDlgItem(window,ID_LOG_TOGGLE),W-M-PAD-PX(88),PX(347),PX(88),PX(28),TRUE);
+    MoveWindow(GetDlgItem(window,ID_SAVE),W-M-PAD-PX(186),PX(347),PX(88),PX(28),TRUE);
+    MoveWindow(logBox,M+PAD,PX(390),W-2*M-2*PAD,std::max(PX(1),recordBottom-PX(404)),TRUE);
     ShowWindow(logBox,logExpanded?SW_SHOW:SW_HIDE);
-    MoveWindow(statusBox,M+PX(18),H-PX(78),W-2*M-PX(18),PX(24),TRUE);
-    MoveWindow(scanPathBox,M,H-PX(52),W-2*M,PX(22),TRUE);
+    MoveWindow(statusBox,M+PX(18),H-PX(90),W-2*M-PX(118),PX(24),TRUE);
+    MoveWindow(scanPathBox,M,H-PX(56),W-2*M,PX(22),TRUE);
     MoveWindow(progressBox,M,H-PX(24),W-2*M,PX(8),TRUE);
-    rcDot={M,H-PX(71),M+PX(7),H-PX(64)};
+    rcDot={M,H-PX(83),M+PX(7),H-PX(76)};
     InvalidateRect(window,nullptr,FALSE);
     return;
 #endif
@@ -585,9 +576,11 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             cardFont=CreateFontW(-PX(15),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Microsoft YaHei");
 #endif
             createChildren();
+#ifndef USB_ENHANCED
             updateDrives();
-            append(L"先检查，再清理；未知变种与同名可疑文件不自动删除。");
-            append(L"恢复会预览移动范围，重名自动改名；文件恢复成功不等于电脑已经清毒。");
+#endif
+            append(L"全盘杀毒：电脑和全部 U 盘；U盘专杀：仅处理勾选的 U 盘。");
+            append(L"先备份再隔离，恢复重名保留双方；可疑文件不自动删除。");
             layout();
             return 0;
         }
@@ -652,7 +645,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             return 0;
         case WM_GETMINMAXINFO:
 #ifdef USB_ENHANCED
-            ((MINMAXINFO*)l)->ptMinTrackSize={PX(820),PX(610)};
+            ((MINMAXINFO*)l)->ptMinTrackSize={PX(820),PX(540)};
 #else
             ((MINMAXINFO*)l)->ptMinTrackSize = { PX(860), PX(640) };
 #endif
@@ -660,7 +653,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         case WM_COMMAND:
             if (LOWORD(w) == ID_ABOUT) { about(); return 0; }
 #ifdef USB_ENHANCED
-            if (LOWORD(w) == ID_REVIEW) { if(!busy)resultWorkflow(); return 0; }
+            if (LOWORD(w) == ID_REVIEW) { return 0; }
             if (LOWORD(w) == ID_STOP) {if(scanning){stopRequested=true;SetWindowTextW(GetDlgItem(window,ID_STOP),L"正在停止…");}return 0;}
             if (LOWORD(w) == ID_RULES) { showRules(); return 0; }
             if (LOWORD(w) == ID_LOG_TOGGLE) {
@@ -668,7 +661,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
                 SetWindowTextW(GetDlgItem(window,ID_LOG_TOGGLE),logExpanded?L"收起记录":L"展开记录");
                 RECT bounds;GetWindowRect(window,&bounds);
                 MONITORINFO monitor{};monitor.cbSize=sizeof(monitor);GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor);
-                int height=std::max<int>(PX(610),bounds.bottom-bounds.top+(logExpanded?PX(168):-PX(168)));
+                int height=std::max<int>(PX(540),bounds.bottom-bounds.top+(logExpanded?PX(168):-PX(168)));
                 height=std::min<int>(height,monitor.rcWork.bottom-monitor.rcWork.top);
                 SetWindowPos(window,nullptr,bounds.left,std::min(bounds.top,monitor.rcWork.bottom-height),bounds.right-bounds.left,height,SWP_NOZORDER|SWP_NOACTIVATE);
                 layout();return 0;
@@ -678,9 +671,9 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             switch (LOWORD(w)) {
             case ID_DRIVE: if (HIWORD(w) == CBN_SELCHANGE) updateFolders(); break;
             case ID_REFRESH: updateDrives(); break;
-            case ID_SCAN: doScan(); break;
-            case ID_CLEAN: doClean(); break;
-            case ID_RESTORE: doRestore(); break;
+            case ID_SCAN: startAutomatic(enhanced::RunMode::Full); break;
+            case ID_CLEAN: openUsbOnly(); break;
+            case ID_RESTORE: break;
             case ID_SAVE: saveLog(); break;
             }
             return 0;
@@ -757,7 +750,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     }
 #ifdef USB_ENHANCED
     S launchRoot,expectedSid;bool launchScan=false;
-    for(int i=1;i<argc;++i){if(S(argv[i])==L"--rescan")launchScan=true;
+    for(int i=1;i<argc;++i){if(S(argv[i])==L"--auto-full")launchScan=true;
         else if(S(argv[i])==L"--root" && i+1<argc)launchRoot=argv[++i];
         else if(S(argv[i])==L"--origin-sid" && i+1<argc)expectedSid=argv[++i];}
     if(!expectedSid.empty() && expectedSid!=currentSid()){
@@ -773,7 +766,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
 #ifdef USB_ENHANCED
     RECT available{};
     if(SystemParametersInfoW(SPI_GETWORKAREA,0,&available,0)) {
-        const int fit=std::min((available.right-available.left-24)*96/900,(available.bottom-available.top-24)*96/630);
+        const int fit=std::min((available.right-available.left-24)*96/900,(available.bottom-available.top-24)*96/540);
         g_dpi=std::max(96,std::min(g_dpi,fit));
     }
 #endif
@@ -797,7 +790,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     RegisterClassExW(&wc);
 #ifdef USB_ENHANCED
     RECT work{0,0,GetSystemMetrics(SM_CXSCREEN),GetSystemMetrics(SM_CYSCREEN)};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
-    int width=PX(900),height=PX(630);
+    int width=PX(900),height=PX(540);
     HWND h=CreateWindowExW(0,wc.lpszClassName,APP_TITLE,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,work.left+std::max<int>(0,(work.right-work.left-width)/2),work.top+std::max<int>(0,(work.bottom-work.top-height)/2),width,height,nullptr,nullptr,instance,nullptr);
 #else
     HWND h = CreateWindowExW(0, wc.lpszClassName, APP_TITLE, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, PX(980), PX(760), nullptr, nullptr, instance, nullptr);
@@ -805,7 +798,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     if (!h) return 1;
     ShowWindow(h, show);
     UpdateWindow(h);
-    showGuide();
+    // The home screen explains both modes; no startup reading dialog.
 #ifdef USB_ENHANCED
     if(!launchRoot.empty()){
         for(size_t i=0;i<roots.size();++i)if(!roots[i].empty() && same(roots[i],launchRoot)){SendMessageW(driveBox,CB_SETCURSEL,i,0);updateFolders();break;}

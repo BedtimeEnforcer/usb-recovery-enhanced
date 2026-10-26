@@ -1,0 +1,43 @@
+PASS USB-only initializes exactly the selected device without any host group
+PASS USB-only has no computer directory scopes
+PASS production USB initialization rejects ordinary directories
+PASS replaced volume is rejected before scanning
+PASS full scan includes every fixed disk from its inventory
+PASS USB process references belong only to their volume-bound scan and cannot be quarantined twice
+PASS one-click runs both selected devices without initializing the computer
+PASS one-click continues bounded scan pages automatically
+PASS both inert indicators are automatically isolated
+PASS both containers and ordinary hidden data are restored in the same operation
+PASS automatic recovery preserves both colliding documents
+PASS second device document returns to its root unchanged
+PASS ordinary hidden folders keep their directory structure
+PASS hidden folder and root document attributes become visible
+PASS only empty special containers are removed after recovery
+PASS unselected device remains unchanged
+PASS multi-device progress count never resets
+PASS USB completion includes concise reinfection and full-scan reminder
+PASS successful bounded cleanup produces success rather than a failure report
+PASS unknown same-name executable is not automatically deleted
+PASS unreviewed high risk blocks restoration and is reported
+PASS ordinary executable data returns to root with documents and emptied wrapper is removed
+PASS ordinary application files do not produce skipped-file warnings
+PASS stop before scan never begins quarantine or restoration
+PASS cancellation cannot report a clean scan
+PASS changed file fails revalidation and blocks automatic restoration
+PASS cleanup failure cannot claim no known virus was found
+PASS completed host scan permits USB restoration gate
+PASS failed host persistence prevents USB restoration
+PASS unrelated host access failures no longer block USB restoration
+PASS known remaining host virus still prevents USB restoration
+PASS unfinished host scan still prevents automatic restoration
+PASS USB treatment never invokes host termination or startup hooks
+PASS known hash without registered size is revalidated and quarantined in one click
+PASS full-mode cleanup reaches actual restoration despite unrelated access failures
+PASS full-mode recovery moves data to root without overwriting original
+PASS full-mode recovery deletes verified empty read-only hidden container
+PASS result details name successfully cleaned payload and restored destination
+PASS result details omit inaccessible paths and scan limitations
+PASS successful full restoration is summarized without unrelated access warnings
+PASS zero restoration cannot be described as files restored to root
+PASS device replacement remains a visible failure while routine access diagnostics stay out of results
+TOTAL PASS 42

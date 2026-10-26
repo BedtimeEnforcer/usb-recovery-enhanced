@@ -27,6 +27,21 @@ static void CALLBACK reviewTimer(HWND,UINT,UINT_PTR timer,DWORD) {
 static int dialogStage=0,measuredWidth=0,detailWidth=0;
 static bool detailPreserved=false;
 static S longDiagnostic;
+static bool pickerEmptyDisabled=false,pickerReady=false,pickerCancel=false,warningSeen=false;
+static void CALLBACK pickerTimer(HWND,UINT,UINT_PTR timer,DWORD) {
+    HWND h=FindWindowW(L"UsbOnlyPicker",nullptr);if(!h)return;KillTimer(nullptr,timer);
+    auto state=(UsbPicker*)GetWindowLongPtrW(h,GWLP_USERDATA);
+    // Populate synthetic labels only. This test never starts a scan or accesses these paths.
+    ListView_DeleteAllItems(state->list);state->disks={{L"X:\\",L"fixture A",1},{L"Y:\\",L"fixture B",2}};
+    EnableWindow(GetDlgItem(h,2),FALSE);pickerEmptyDisabled=!IsWindowEnabled(GetDlgItem(h,2));
+    for(int i=0;i<2;++i){LVITEMW row{};row.mask=LVIF_TEXT;row.iItem=i;row.pszText=(LPWSTR)state->disks[i].root.c_str();ListView_InsertItem(state->list,&row);ListView_SetCheckState(state->list,i,TRUE);}
+    pickerReady=IsWindowEnabled(GetDlgItem(h,2)) && ListView_GetCheckState(state->list,0) && ListView_GetCheckState(state->list,1);
+    PostMessageW(h,WM_COMMAND,pickerCancel?3:2,0);
+}
+static void CALLBACK warningTimer(HWND,UINT,UINT_PTR timer,DWORD) {
+    HWND h=FindWindowW(L"#32770",L"U盘专杀");if(!h)return;KillTimer(nullptr,timer);warningSeen=true;
+    PostMessageW(h,TDM_CLICK_BUTTON,IDCLOSE,0);
+}
 static void CALLBACK dialogTimer(HWND,UINT,UINT_PTR timer,DWORD) {
     HWND dialog=FindWindowW(L"#32770",L"宽度回归测试");if(!dialog)return;
     if(dialogStage==0){RECT rect{};GetWindowRect(dialog,&rect);measuredWidth=rect.right-rect.left;
@@ -92,9 +107,16 @@ int wmain(int argc,wchar_t** argv) {
         check(!scanning && !IsWindowVisible(progressBox) && !IsWindowVisible(scanPathBox),"completion stops progress and clears stale path");
         RECT pathRect,barRect,client;GetWindowRect(scanPathBox,&pathRect);GetWindowRect(progressBox,&barRect);GetClientRect(window,&client);
         check(pathRect.bottom<=barRect.top && client.bottom>0,"progress text and bar do not overlap");
-        HWND extended=GetDlgItem(window,ID_EXPANDED),reviewButton=GetDlgItem(window,ID_REVIEW);
-        check(extended && text(extended).find(L"推荐检查")!=S::npos && IsWindowVisible(extended),"recommended scope always includes extended locations");
-        check(reviewButton && IsWindowVisible(reviewButton),"manual review is a visible independent entry point");
+        check(text(GetDlgItem(window,ID_SCAN))==L"全盘杀毒" && text(GetDlgItem(window,ID_CLEAN))==L"U盘专杀","home offers the two requested modes");
+        check(!GetDlgItem(window,ID_DRIVE) && !GetDlgItem(window,ID_FOLDER) && !GetDlgItem(window,ID_RESTORE) && !GetDlgItem(window,ID_REVIEW),"home has no drive picker or separate cleanup and recovery steps");
+        SetTimer(nullptr,0,200,warningTimer);openUsbOnly();
+        check(warningSeen && !busy && !FindWindowW(L"UsbOnlyPicker",nullptr),"USB warning can be dismissed without selecting or scanning drives");
+        UsbPicker picker;SetTimer(nullptr,0,200,pickerTimer);
+        check(chooseUsbTargets(picker) && picker.selected.size()==2,"USB picker returns multiple checked devices");
+        check(pickerEmptyDisabled && pickerReady,"USB picker disables empty selection and enables checked devices");
+        check(picker.selected[0].serial==1 && picker.selected[1].serial==2,"USB selection retains volume identity for later validation");
+        pickerCancel=true;UsbPicker cancelledPicker;SetTimer(nullptr,0,200,pickerTimer);
+        check(!chooseUsbTargets(cancelledPicker) && !busy,"cancel USB selection never starts processing");
         showTextReport(L"fixture aftercare",aftercareChecklist());
         HWND aftercare=FindWindowW(L"UsbReviewReport",L"fixture aftercare");
         check(aftercare && text(GetDlgItem(aftercare,1)).find(L"UPnP")!=S::npos && text(GetDlgItem(aftercare,1)).find(L"新助记词")!=S::npos,"scrollable completion checklist exposes network and credential instructions");
