@@ -33,9 +33,17 @@ struct RecoveryContext {
     Treatment treatment;
     std::vector<S> unreviewedSettings;
 };
+inline const S& usbScanRequiredText() {
+    static const S text=L"请您选择 U 盘后重新扫描杀毒，再恢复文件。";
+    return text;
+}
+inline bool matchesRecoveryVolume(const RecoveryContext& c,const S& root,DWORD serial) {
+    // Computer-only scans deliberately have no volume path. Never normalize that empty path.
+    return c.scanned && !c.root.empty() && !root.empty() && same(c.root,root) && c.serial==serial;
+}
 inline void requireContext(const RecoveryContext& c,const S& root,DWORD serial) {
     NativeFs native;
-    if(!c.scanned || !same(c.root,root) || c.serial!=serial)throw Error{L"请先检查当前 U 盘，再恢复文件。"};
+    if(!matchesRecoveryVolume(c,root,serial))throw Error{usbScanRequiredText()};
     if(!c.criticalComplete)throw Error{L"关键位置尚未检查完，请先继续检查。"};
     if(!c.unreviewedSettings.empty())throw Error{L"还有启动项或磁盘显示设置未确认。请在处理列表选择处理或保留；保留不会删除设置。"};
     for(const auto& a:c.treatment.actions)if(a.blocksRecovery && a.status!=ActionStatus::Done)

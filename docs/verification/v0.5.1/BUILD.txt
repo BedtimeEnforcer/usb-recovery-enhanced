@@ -1,0 +1,7 @@
+Version: 0.5.1
+Regression assertions: 241 passed
+Result dialog width: 786 pixels; test main window: 900 pixels
+Detail window width: 760 pixels; full long diagnostic preserved
+Actual EXE smoke: startup, USB scan prerequisite, collapsed/expanded log, rules, normal exit passed
+Real infection and physical removable-volume testing: reserved for user VM acceptance
+SHA256: 1B1F21DFF5331539CF62FD1BB655A3055893CEBD1593B605D64187BCF86868D4

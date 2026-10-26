@@ -24,6 +24,18 @@ static void CALLBACK reviewTimer(HWND,UINT,UINT_PTR timer,DWORD) {
     ListView_SetCheckState(list,2,TRUE);
     PostMessageW(h,WM_COMMAND,cancelReview?3:2,0);
 }
+static int dialogStage=0,measuredWidth=0,detailWidth=0;
+static bool detailPreserved=false;
+static S longDiagnostic;
+static void CALLBACK dialogTimer(HWND,UINT,UINT_PTR timer,DWORD) {
+    HWND dialog=FindWindowW(L"#32770",L"宽度回归测试");if(!dialog)return;
+    if(dialogStage==0){RECT rect{};GetWindowRect(dialog,&rect);measuredWidth=rect.right-rect.left;
+        dialogStage=1;PostMessageW(dialog,TDM_CLICK_BUTTON,4090,0);return;}
+    HWND detail=FindWindowW(L"UsbReviewReport",L"宽度回归测试 · 详情");if(!detail)return;
+    RECT rect{};GetWindowRect(detail,&rect);detailWidth=rect.right-rect.left;
+    detailPreserved=controlText(GetDlgItem(detail,1))==longDiagnostic;
+    DestroyWindow(detail);KillTimer(nullptr,timer);PostMessageW(dialog,TDM_CLICK_BUTTON,401,0);
+}
 int wmain(int argc,wchar_t** argv) {
     try {
         if(argc!=2)return 2;
@@ -109,6 +121,15 @@ int wmain(int argc,wchar_t** argv) {
         ReviewWindow cancellation;cancellation.rows=review.rows;cancelReview=true;
         SetTimer(nullptr,0,200,reviewTimer);
         check(!chooseTreatment(cancellation),"cancel exits the complete decision sheet without applying choices");
+        longDiagnostic=L"未扫描：C:\\Windows\\"+S(12000,L'x')+L"\\locked.dat";
+        SetTimer(nullptr,0,200,dialogTimer);
+        int dialogResult=workflowDialog(L"宽度回归测试",L"检查结束",L"本次发现 3 项病毒。\r\n请选择下一步。",
+            {{401,L"查杀 / 查看发现"},{402,L"继续检查"},{403,L"恢复隐藏文件到根目录"},{405,L"检查详情与善后"},{406,L"重新检查 / 重试失败项"},{407,L"保存文件后重启"}},longDiagnostic,true);
+        RECT ownerRect{};GetWindowRect(window,&ownerRect);
+        std::cout<<"MEASURED RESULT WIDTH "<<measuredWidth<<" OWNER WIDTH "<<(ownerRect.right-ownerRect.left)<<std::endl;
+        check(dialogResult==401 && measuredWidth>0 && measuredWidth<ownerRect.right-ownerRect.left,"long diagnostics and six actions cannot stretch result window beyond main window");
+        check(detailPreserved && detailWidth>0,"separate scrollable details preserve complete diagnostic text");
+        std::cout<<"RESULT WINDOW WIDTH "<<measuredWidth<<" DETAILS WIDTH "<<detailWidth<<std::endl;
         DestroyWindow(window);
         std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
     }catch(const Error& e){std::cerr<<utf8(e.text)<<std::endl;return 1;}

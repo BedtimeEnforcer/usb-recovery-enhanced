@@ -1,0 +1,15 @@
+PASS empty scan is concise
+PASS unknown files are not offered for automatic cleanup
+PASS confirmation lists only confirmed files without diagnostic noise
+PASS access notices remain in expandable details with concise coverage warning
+PASS access notices remain available for logging
+PASS successful cleanup reports the isolated count
+PASS screenshot scenario separates isolation success from startup failure
+PASS failed file stays visible with technical details in logs
+PASS partial cleanup identifies the remaining file
+PASS remaining cleanup guidance is plain language
+PASS startup failure without file results remains visible
+PASS empty cleanup never claims success
+PASS changed startup asks to rescan rather than elevate
+PASS access denied provides elevation and fallback guidance
+TOTAL PASS 14

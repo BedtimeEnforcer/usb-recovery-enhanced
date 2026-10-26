@@ -1,5 +1,7 @@
 # U 盘修复助手 · 加强版
 
+v0.5.1 修复只扫描电脑后恢复 U 盘的空路径错误，提供明确的恢复入口并限制结果窗口宽度。见 [修复与验证记录](docs/HOTFIX-0.5.1.md)。
+
 本仓库仅发布加强版。免安装程序和便携 ZIP 请在 [Releases](https://github.com/BedtimeEnforcer/usb-recovery-enhanced/releases/latest) 下载。
 
 > **测试样本说明**：本仓库不再公开提供真实病毒测试样本，检测指纹见 [samples/README.md](samples/README.md)。样本不包含在普通程序下载包中；确需隔离研究请通过 Issues 联系维护者私下沟通。

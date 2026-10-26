@@ -1,0 +1,19 @@
+PASS SHA256 golden vector
+PASS malicious shortcut parsed without execution
+PASS normal shortcut preserved
+PASS same-name benign file not malware
+PASS skip suspicious top-level entries
+PASS collision rename
+PASS recovered bytes unchanged
+PASS unknown executable preserved
+PASS repeat recovery idempotent
+PASS production rejects non-volume root
+PASS outside container rejected
+PASS stale preview rejected
+PASS stale rejection preserves source
+PASS quarantine backup verified
+PASS changed file not deleted
+PASS mismatch source retained
+PASS nested malicious entry blocked
+PASS quoted startup path
+TOTAL PASS 18

@@ -17,18 +17,33 @@ static bool needAdministrator() {
     // Keep the original window and its state; an alternate administrator may be rejected by SID.
     return false;
 }
+struct WorkflowDialogDetails { S title,text; };
+static HRESULT CALLBACK workflowDialogCallback(HWND dialog,UINT notification,WPARAM button,LPARAM,LONG_PTR data) {
+    if(notification==TDN_BUTTON_CLICKED && button==4090){
+        const auto* details=(const WorkflowDialogDetails*)data;
+        showTextReport(details->title,details->text,dialog);return S_FALSE;
+    }
+    return S_OK;
+}
 static int workflowDialog(const S& title,const S& headline,const S& content,const std::vector<std::pair<int,S>>& actions,const S& details=L"",bool warning=false) {
     std::vector<TASKDIALOG_BUTTON> buttons;for(const auto& a:actions)buttons.push_back({a.first,a.second.c_str()});
+    if(!details.empty())buttons.push_back({4090,L"查看详情"});
+    WorkflowDialogDetails extra{title+L" · 详情",details};
     TASKDIALOGCONFIG cfg{};cfg.cbSize=sizeof(cfg);cfg.hwndParent=window;cfg.pszWindowTitle=title.c_str();cfg.pszMainInstruction=headline.c_str();cfg.pszContent=content.c_str();
-    cfg.pszMainIcon=warning?TD_WARNING_ICON:TD_INFORMATION_ICON;cfg.dwFlags=TDF_POSITION_RELATIVE_TO_WINDOW|TDF_ALLOW_DIALOG_CANCELLATION;
-    cfg.dwCommonButtons=TDCBF_CLOSE_BUTTON;cfg.cButtons=UINT(buttons.size());cfg.pButtons=buttons.data();
-    if(!details.empty()){cfg.pszExpandedInformation=details.c_str();cfg.pszExpandedControlText=L"查看详情";cfg.pszCollapsedControlText=L"收起详情";}
-    int clicked=IDCANCEL;TaskDialogIndirect(&cfg,&clicked,nullptr,nullptr);return clicked;
+    cfg.pszMainIcon=warning?TD_WARNING_ICON:TD_INFORMATION_ICON;
+    cfg.dwFlags=TDF_POSITION_RELATIVE_TO_WINDOW|TDF_ALLOW_DIALOG_CANCELLATION;
+    if(!buttons.empty())cfg.dwFlags|=TDF_USE_COMMAND_LINKS;
+    cfg.cxWidth=260; // Explicit dialog units; long diagnostics live in a separate scrollable window.
+    cfg.dwCommonButtons=TDCBF_CLOSE_BUTTON;cfg.cButtons=UINT(buttons.size());cfg.pButtons=buttons.empty()?nullptr:buttons.data();
+    cfg.pfCallback=workflowDialogCallback;cfg.lpCallbackData=(LONG_PTR)&extra;
+    int clicked=IDCANCEL;HRESULT hr=TaskDialogIndirect(&cfg,&clicked,nullptr,nullptr);
+    if(FAILED(hr))throw Error{L"无法打开结果窗口 ["+num((DWORD)hr)+L"]"};
+    return clicked;
 }
 static void scanWorkflow(bool resume) {
     if(busy)return;
     S root=selectedRoot();stopRequested=false;SetWindowTextW(GetDlgItem(window,ID_STOP),L"停止检查");
-    if(resume && ((!root.empty() && !same(root,workflow.scan.root)) || root.empty()!=workflow.scan.root.empty()))resume=false;
+    if(resume && (root.empty()!=workflow.scan.root.empty() || (!root.empty() && !workflow.scan.root.empty() && !same(root,workflow.scan.root))))resume=false;
     startScanProgress();
     run(L"正在检查……",[root,resume]{
         NativeFs native;
@@ -150,15 +165,16 @@ static void reviewWorkflow() {
             for(const auto& a:workflow.treatment.actions)if(a.kind==kind && a.target==registryLocation(r) && (a.status==enhanced::ActionStatus::Done || a.status==enhanced::ActionStatus::Kept))return true;
             return false;}),values.end());};
         keepPending(workflow.startups,enhanced::ActionKind::Startup);keepPending(workflow.policies,enhanced::ActionKind::Policy);findings=workflow.scan.findings;
-    },[]{resultWorkflow();});
+    },[]{updateFolders();resultWorkflow();});
 }
 static void resultWorkflow() {
     if(busy)return;
     if(!workflow.scan.initialized){reviewWorkflow();return;}
     auto report=enhanced::treatmentReport(workflow);
     if(workflow.treatment.actions.empty()){report.headline=L"查看本次检查结果";report.content=L"发现 "+num(workflow.scan.findings.size())+L" 项文件、"+num(workflow.startups.size())+L" 个指定启动项和 "+num(workflow.policies.size())+L" 个磁盘显示设置。";}
-    std::vector<std::pair<int,S>> actions{{401,L"查看 / 处理发现"},{405,L"检查详情与善后"}};
-    if(!workflow.scan.root.empty())actions.push_back({403,L"恢复文件"});
+    std::vector<std::pair<int,S>> actions;
+    if(!workflow.scan.root.empty())actions.push_back({403,L"恢复隐藏文件到根目录"});
+    actions.push_back({401,L"查看 / 处理发现"});actions.push_back({405,L"检查详情与善后"});
     if(workflow.scan.pending() || !workflow.inventoryComplete)actions.push_back({402,L"继续检查"});
     if(workflow.treatment.blocked())actions.push_back({406,admin()?L"重新检查 / 重试失败项":L"以管理员身份重试"});
     if(report.anyIsolated)actions.push_back({407,L"保存文件后重启"});
@@ -173,15 +189,25 @@ static void resultWorkflow() {
 }
 static void restoreWorkflow() {
     if(busy)return;
-    S root=selectedRoot();auto index=SendMessageW(folderBox,CB_GETCURSEL,0,0);
-    if(root.empty() || index<0 || size_t(index)>=folders.size()){msgBox(L"恢复文件",L"请选择 U 盘和隐藏目录",L"刷新设备列表后再选择。");return;}
+    S root=selectedRoot();
+    if(root.empty()){
+        workflowDialog(L"恢复文件",L"请先扫描 U 盘",enhanced::usbScanRequiredText(),{},L"",true);return;
+    }
+    auto context=workflow.recovery();
+    if(!enhanced::matchesRecoveryVolume(context,root,volume(root))){
+        int answer=workflowDialog(L"恢复文件",L"请先扫描所选 U 盘",enhanced::usbScanRequiredText(),{{402,L"扫描所选 U 盘"}},L"",true);
+        if(answer==402)scanWorkflow(false);
+        return;
+    }
+    auto index=SendMessageW(folderBox,CB_GETCURSEL,0,0);
+    if(index<0 || size_t(index)>=folders.size()){msgBox(L"恢复文件",L"未找到需要恢复的隐藏目录",L"请确认 U 盘已插入，并查看盘内文件是否已经位于根目录。");return;}
     try{auto context=workflow.recovery();enhanced::requireContext(context,root,volume(root));}
     catch(const Error& e){int answer=workflowDialog(L"恢复文件",L"暂不能恢复",e.text,{{401,L"查看 / 处理发现"},{402,L"继续检查"}},L"",true);
         if(answer==401)reviewWorkflow();else if(answer==402)scanWorkflow(workflow.scan.pending());return;}
     S container=folders[size_t(index)];
     run(L"正在生成恢复预览……",[root,container]{
         NativeFs native;enhanced::recheckTreatment(workflow,logLine,1,0);auto context=workflow.recovery();enhanced::requireContext(context,root,volume(root));
-        pending=enhanced::plan(root,container,false,true);
+        pending=enhanced::prepareRecovery(workflow,root,container);
     },[]{
         S content=L"恢复到："+pending.root+L"\r\n将恢复 "+num(pending.items.size())+L" 项文件或文件夹；重名会保留双方。";
         if(!pending.skipped.empty())content+=L"\r\n另有 "+num(pending.skipped.size())+L" 项暂不恢复，保留原处。";
@@ -190,7 +216,7 @@ static void restoreWorkflow() {
         if(workflowDialog(L"恢复预览",L"确认恢复这些文件？",content,{{403,L"开始恢复"}},detail)!=403)return;
         Plan p=pending;
         run(L"正在恢复，请勿拔出 U 盘……",[p]{
-            NativeFs native;enhanced::recheckTreatment(workflow,logLine,1,0);auto context=workflow.recovery();Journal journal(data());enhanced::recover(p,journal,logLine,false,&context);
+            NativeFs native;enhanced::recheckTreatment(workflow,logLine,1,0);Journal journal(data());enhanced::executeRecovery(workflow,p,journal,logLine);
         },[p]{updateFolders();S content=L"已恢复 "+num(p.items.size())+L" 项文件或文件夹。";
             if(!p.skipped.empty())content+=L"\r\n另有 "+num(p.skipped.size())+L" 项保留原处。";
             content+=L"\r\n恢复成功不等于清毒。请保存文件并重启复查。";

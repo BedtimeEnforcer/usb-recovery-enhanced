@@ -113,6 +113,18 @@ try {
     [ReportSmoke]::PostMessage($dialog, 0x466, [IntPtr]1, [IntPtr]::Zero) | Out-Null
     Wait-Window '#32770' $false | Out-Null
     if ($Enhanced) {
+        [ReportSmoke]::PostMessage($main,0x111,[IntPtr]103,[IntPtr]::Zero) | Out-Null
+        $restoreDialog = Wait-Window '#32770'
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle($restoreDialog)
+        $children = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+        $restoreText = ($children | ForEach-Object { $_.Current.Name } | Where-Object { $_ } | Select-Object -Unique) -join "`r`n"
+        if ($restoreText -notmatch '请您选择 U 盘后重新扫描杀毒' -or $restoreText -match '路径过长或无效') { throw "Unexpected restore prerequisite: $restoreText" }
+        Save-Window $restoreDialog 'ui-restore-without-usb.png'
+        [ReportSmoke]::PostMessage($restoreDialog,0x466,[IntPtr]8,[IntPtr]::Zero) | Out-Null
+        Wait-Window '#32770' $false | Out-Null
+        'PASS restoring before USB scan gives select and rescan guidance'
+    }
+    if ($Enhanced) {
         $log = [ReportSmoke]::ChildByClass($main, 'Edit')
         if ($log -eq [IntPtr]::Zero -or ([ReportSmoke]::GetWindowLong($log,-16) -band 0x10000000)) { throw 'Log should be collapsed by default' }
         'PASS detailed log is collapsed by default'

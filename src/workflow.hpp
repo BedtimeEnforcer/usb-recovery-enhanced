@@ -13,6 +13,8 @@ struct Workflow {
     std::vector<PersistenceItem> persistence;
     std::vector<S> diagnostics;
     bool registryChecked=false,inventoryComplete=false;
+    size_t restoredItems=0;
+    bool recoveryPerformed=false;
     RecoveryContext recovery() const {
         RecoveryContext c;c.scanned=scan.initialized;c.criticalComplete=scan.criticalReady() && registryChecked;
         c.root=scan.root;c.serial=scan.serial;c.outstanding=scan.findings;c.retained=retained;c.treatment=treatment;
@@ -20,6 +22,15 @@ struct Workflow {
         return c;
     }
 };
+inline Plan prepareRecovery(const Workflow& w,const S& root,const S& container,bool test=false) {
+    auto context=w.recovery();requireContext(context,root,volume(root));
+    return plan(root,container,test,true);
+}
+inline void executeRecovery(Workflow& w,const Plan& preview,Journal& journal,Log log,bool test=false) {
+    auto context=w.recovery();requireContext(context,preview.root,volume(preview.root));
+    recover(preview,journal,log,test,&context);
+    w.recoveryPerformed=true;w.restoredItems+=preview.items.size();
+}
 inline void setAction(Treatment& t,ActionKind kind,ActionStatus status,const S& target,const S& reason=L"",bool blocks=false) {
     for(auto& a:t.actions)if(a.kind==kind && a.target==target){a={kind,status,target,reason,blocks};return;}
     t.add(kind,status,target,reason,blocks);
@@ -125,6 +136,8 @@ inline UiReport treatmentReport(const Workflow& w) {
         break;
     }
     if(!w.scan.findings.empty())r.content+=L"\r\n还有 "+num(w.scan.findings.size())+L" 项发现未隔离，可返回处理列表查看。";
+    if(isolated && !w.scan.root.empty() && !w.recoveryPerformed)r.content+=L"\r\n隐藏文件尚未恢复。请点击“恢复隐藏文件到根目录”。";
+    if(w.recoveryPerformed)r.content+=L"\r\n已恢复 "+num(w.restoredItems)+L" 项文件或文件夹到 U 盘根目录。";
     if(isolated)r.content+=L"\r\n完成文件恢复后，请保存文件并重启复查。";
     r.warning=failed || kept || !w.scan.findings.empty();r.details+=L"\r\n"+aftercareChecklist();return r;
 }

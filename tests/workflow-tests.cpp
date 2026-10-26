@@ -126,5 +126,36 @@ int wmain(int argc,wchar_t** argv){try{
     e::Workflow pendingSettings;pendingSettings.scan.initialized=true;pendingSettings.registryChecked=true;pendingSettings.scan.root=root;pendingSettings.scan.serial=volume(root);pendingSettings.startups={dummy};
     auto unreviewed=pendingSettings.recovery();
     rejects([&]{e::requireContext(unreviewed,root,volume(root));},"unreviewed startup settings cannot be silently omitted from recovery context");
+
+    e::RecoveryContext computerOnly;computerOnly.scanned=true;computerOnly.criticalComplete=true;
+    check(!e::matchesRecoveryVolume(computerOnly,root,volume(root)),"computer-only scan never normalizes an empty scanned volume");
+    S recoveryError;try{e::requireContext(computerOnly,root,volume(root));}catch(const Error& error){recoveryError=error.text;}
+    check(recoveryError==e::usbScanRequiredText() && recoveryError.find(L"路径过长")==S::npos,"computer-only then USB recovery explains select and rescan rather than invalid path");
+    check(!e::matchesRecoveryVolume(computerOnly,L"",0),"no selected USB is rejected without empty-path normalization");
+    e::Workflow flow;S usbRoot=join(root,L"usb-fixture");mkdir(usbRoot);S container=join(usbRoot,L"\uffff");mkdir(container);
+    S userDoc=join(container,L"report.txt"),nested=join(container,L"photos");mkdir(nested);
+    textFile(userDoc,L"user report preserved");textFile(join(nested,L"photo.txt"),L"nested user data");textFile(join(usbRoot,L"report.txt"),L"existing root document");
+    SetFileAttributesW(xp(container).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    SetFileAttributesW(xp(nested).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    SetFileAttributesW(xp(join(nested,L"photo.txt")).c_str(),FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM);
+    S userHash=hash(userDoc),nestedHash=hash(join(nested,L"photo.txt"));
+    S virus=join(container,L"DrvMgr.exe");textFile(virus,L"inert removable-drive payload fixture");
+    std::vector<e::HashRule> usbCatalog{{hash(virus),L"INERT",L"fixture",L"fixture",size(virus)}};
+    Finding usbFinding=inspect(virus,usbCatalog);
+    flow.scan.initialized=true;flow.scan.complete=true;flow.registryChecked=true;flow.inventoryComplete=true;
+    flow.scan.root=usbRoot;flow.scan.serial=volume(usbRoot);flow.scan.findings={usbFinding};
+    rejects([&]{e::prepareRecovery(flow,usbRoot,container,true);},"integrated restore refuses to move documents before virus isolation");
+    e::HostActions inertHost{[](const Finding&,Journal&,Log){},[](const Finding&,Journal&,Log){}};
+    {Journal journal(join(root,L"journals"));e::treatFinding(usbFinding,true,flow,journal,quiet,&inertHost,usbCatalog);}
+    e::recheckTreatment(flow,quiet,3,0,[](const S&){return false;},[]{return std::vector<S>{};});
+    check(!exists(virus) && !flow.treatment.blocked(),"integrated cleanup resolves payload and recheck state before restoration");
+    check(e::treatmentReport(flow).content.find(L"隐藏文件尚未恢复")!=S::npos,"successful cleanup explicitly offers the still-needed user-file restoration");
+    auto preview=e::prepareRecovery(flow,usbRoot,container,true);
+    check(preview.items.size()==2 && preview.root==usbRoot,"integrated restore preview targets the selected USB root");
+    {Journal journal(join(root,L"journals"));e::executeRecovery(flow,preview,journal,quiet,true);}
+    check(flow.recoveryPerformed && flow.restoredItems==2 && list(container).empty(),"integrated cleanup-to-restore actually empties user data from UFFFF container");
+    check(hash(join(usbRoot,L"report（恢复1）.txt"))==userHash && hash(join(usbRoot,L"report.txt"))!=userHash,"integrated restoration moves document to root and preserves colliding original");
+    check(hash(join(usbRoot,L"photos\\photo.txt"))==nestedHash && !(attr(join(usbRoot,L"photos\\photo.txt"))&(FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM)),"integrated restoration moves nested files to root and clears hidden system attributes");
+    check(e::treatmentReport(flow).content.find(L"已恢复 2 项")!=S::npos && e::treatmentReport(flow).content.find(L"尚未恢复")==S::npos,"post-restore result reports completed movement rather than stale reminder");
     std::cout<<"TOTAL PASS "<<passed<<std::endl;return 0;
 }catch(const Error& e){std::cerr<<utf8(e.text)<<std::endl;return 1;}}

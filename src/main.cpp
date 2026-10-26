@@ -362,9 +362,12 @@ LRESULT CALLBACK reviewReportProc(HWND h,UINT message,WPARAM w,LPARAM l) {
     if(message==WM_SIZE){MoveWindow(GetDlgItem(h,1),12,12,std::max(1,int(LOWORD(l))-24),std::max(1,int(HIWORD(l))-24),TRUE);return 0;}
     return DefWindowProcW(h,message,w,l);
 }
-void showTextReport(const S& title,const S& text) {
+void showTextReport(const S& title,const S& text,HWND owner=nullptr) {
     WNDCLASSW cls{};cls.lpfnWndProc=reviewReportProc;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"UsbReviewReport";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);RegisterClassW(&cls);
-    HWND report=CreateWindowW(cls.lpszClassName,title.c_str(),WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,PX(850),PX(620),window,nullptr,cls.hInstance,nullptr);
+    HWND parentWindow=owner?owner:window;
+    MONITORINFO monitor{};monitor.cbSize=sizeof(monitor);GetMonitorInfoW(MonitorFromWindow(parentWindow,MONITOR_DEFAULTTONEAREST),&monitor);
+    int width=std::min<int>(PX(760),monitor.rcWork.right-monitor.rcWork.left-32),height=std::min<int>(PX(580),monitor.rcWork.bottom-monitor.rcWork.top-32);
+    HWND report=CreateWindowW(cls.lpszClassName,title.c_str(),WS_OVERLAPPEDWINDOW,monitor.rcWork.left+(monitor.rcWork.right-monitor.rcWork.left-width)/2,monitor.rcWork.top+(monitor.rcWork.bottom-monitor.rcWork.top-height)/2,width,height,parentWindow,nullptr,cls.hInstance,nullptr);
     if(!report)fail(L"打开核查详情");
     HWND edit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,12,12,PX(800),PX(540),report,(HMENU)1,cls.hInstance,nullptr);
     SendMessageW(edit,EM_SETLIMITTEXT,1024*1024,0);SendMessageW(edit,WM_SETFONT,(WPARAM)font,TRUE);SetWindowTextW(edit,text.c_str());
@@ -780,7 +783,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     if (!appIcon40) appIcon40 = (HICON)LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, 64, 64, LR_SHARED);
     appIconSmall = (HICON)LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, LR_SHARED);
 
-    INITCOMMONCONTROLSEX cc{ sizeof(cc), ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS };
+    INITCOMMONCONTROLSEX cc{ sizeof(cc), ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS | ICC_LISTVIEW_CLASSES };
     InitCommonControlsEx(&cc);
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
